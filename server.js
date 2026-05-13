@@ -292,6 +292,74 @@ app.post('/api/login', async (req, res) => {
   }
   
 });
+
+app.get('/api/login', async (req, res) => {
+  try {
+    const { dni, password } = req.query;
+
+    if (!dni || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Faltan parámetros: dni y password son requeridos'
+      });
+    }
+
+    // Buscar usuario en tabla medico
+    const [medicos] = await pool.query(
+      `SELECT * FROM medico WHERE dni = ? AND clave_hash = ?`,
+      [dni, password]
+    );
+
+    if (medicos.length > 0) {
+      return res.json({
+        success: true,
+        rol: 'Doctor',
+        usuario: medicos[0]
+      });
+    }
+
+    // Buscar en personal_admision
+    const [admision] = await pool.query(
+      `SELECT * FROM personal_admision WHERE dni = ? AND clave_hash = ?`,
+      [dni, password]
+    );
+
+    if (admision.length > 0) {
+      return res.json({
+        success: true,
+        rol: 'Admision',
+        usuario: admision[0]
+      });
+    }
+
+    // Buscar en administrador
+    const [admin] = await pool.query(
+      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
+      [dni, password]
+    );
+
+    if (admin.length > 0) {
+      return res.json({
+        success: true,
+        rol: 'Admin',
+        usuario: admin[0]
+      });
+    }
+
+    // Si no coincide en ninguna tabla
+    return res.status(401).json({
+      success: false,
+      error: 'Credenciales incorrectas'
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      error: 'Error en el servidor'
+    });
+  }
+});
 app.post('/api/paciente', async (req, res) => {
 
   try {
