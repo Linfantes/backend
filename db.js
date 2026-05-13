@@ -1,12 +1,19 @@
 const mysql = require('mysql2/promise');
 
 const pool = mysql.createPool({
-  host: 'localhost',
-  user: 'vitascan_admin',
-  password: 'Mv!P4ssw0rd#2026',
-  database: 'sistema_triaje',
+  host: 'yamabiko.proxy.rlwy.net',
+  port: 11871,
+  user: 'root',
+  password: 'VGnQvFfcXxeOppTbTDZldKhOLXLQSyCN',
+  database: 'railway',
   waitForConnections: true,
-  connectionLimit: 10
+  connectionLimit: 10,
+  queueLimit: 0,
+  dateStrings: true,
+  ssl: {
+    // Esta es la clave: con rejectUnauthorized: false aceptará certificados autofirmados
+    rejectUnauthorized: false
+  }
 });
 
 (async () => {
