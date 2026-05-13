@@ -306,7 +306,7 @@ app.get('/api/login', async (req, res) => {
 
     // Buscar usuario en tabla medico
     const [medicos] = await pool.query(
-      `SELECT * FROM medico WHERE dni = ? AND clave_hash = ?`,
+      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
       [dni, password]
     );
 
