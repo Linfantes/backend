@@ -203,93 +203,74 @@ app.post('/api/register', async (req, res) => {
   }
 
 });
-
 app.post('/api/login', async (req, res) => {
   try {
     const { dni, password } = req.body;
 
-    if (!dni) {
-      return res.status(400).json({
-        success: false,
-        error: 'DNI es requerido'
-      });
-    }
-
-    // --- PACIENTE ---
-    const [pacientes] = await pool.query(
-      `SELECT * FROM paciente WHERE dni = ?`,
-      [dni]
-    );
-
-    if (pacientes.length > 0) {
-      return res.json({
-        success: true,
-        rol: 'Paciente',
-        usuario: pacientes[0]
-      });
-    }
-
+    // ====================================================================
+    // PASO 1: VERIFICAR SOLO DNI (Cuando el frontend ejecuta verificarDni)
+    // ====================================================================
     if (!password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Contraseña es requerida para este usuario'
-      });
+      
+      // 1. Verificar si es Paciente (Ajusta el nombre de tu tabla de pacientes si es diferente)
+      const [pacientes] = await pool.query(`SELECT * FROM paciente WHERE dni = ?`, [dni]);
+      if (pacientes.length > 0) {
+        return res.json({ success: true, rol: 'Paciente', usuario: pacientes[0] });
+      }
+
+      // 2. Verificar si es Médico
+      const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
+      if (medicos.length > 0) {
+        return res.json({ success: true, rol: 'Doctor' }); // Devolvemos success para que el frontend pida contraseña
+      }
+
+      // 3. Verificar si es Admisión
+      const [admision] = await pool.query(`SELECT * FROM personal_admision WHERE dni = ?`, [dni]);
+      if (admision.length > 0) {
+        return res.json({ success: true, rol: 'Admision' });
+      }
+
+      // 4. Verificar si es Admin
+      const [admin] = await pool.query(`SELECT * FROM administrador WHERE dni = ?`, [dni]);
+      if (admin.length > 0) {
+        return res.json({ success: true, rol: 'Admin' });
+      }
+
+      // Si no está en NINGUNA tabla:
+      return res.status(404).json({ success: false, error: 'DNI no registrado' });
     }
 
-    // --- MEDICO ---
+    // ====================================================================
+    // PASO 2: VERIFICAR DNI + CONTRASEÑA (Cuando el frontend ejecuta manejarLogin)
+    // ====================================================================
+    
+    // MÉDICO
     const [medicos] = await pool.query(
-      `SELECT * FROM medico WHERE dni = ? AND clave_hash = ?`,
+      `SELECT * FROM medico WHERE dni = ? AND clave_hash = ?`, 
       [dni, password]
     );
+    if (medicos.length > 0) return res.json({ success: true, rol: 'Doctor', usuario: medicos[0] });
 
-    if (medicos.length > 0) {
-      return res.json({
-        success: true,
-        rol: 'Doctor',
-        usuario: medicos[0]
-      });
-    }
-
-    // --- ADMISION ---
+    // ADMISIÓN
     const [admision] = await pool.query(
-      `SELECT * FROM personal_admision WHERE dni = ? AND clave_hash = ?`,
+      `SELECT * FROM personal_admision WHERE dni = ? AND clave_hash = ?`, 
       [dni, password]
     );
+    if (admision.length > 0) return res.json({ success: true, rol: 'Admision', usuario: admision[0] });
 
-    if (admision.length > 0) {
-      return res.json({
-        success: true,
-        rol: 'Admision',
-        usuario: admision[0]
-      });
-    }
-
-    // --- ADMIN ---
+    // ADMIN
     const [admin] = await pool.query(
-      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
+      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`, 
       [dni, password]
     );
+    if (admin.length > 0) return res.json({ success: true, rol: 'Admin', usuario: admin[0] });
 
-    if (admin.length > 0) {
-      return res.json({
-        success: true,
-        rol: 'Admin',
-        usuario: admin[0]
-      });
-    }
-
-    // Si no existe en ninguna tabla
-    return res.status(404).json({
-      success: false,
-      error: 'DNI no registrado o credenciales incorrectas'
-    });
+    // Si llega aquí, el DNI existe pero la contraseña está mal
+    res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      success: false,
-      error: 'Error en el servidor'
-    });
+    res.status(500).json({ success: false, error: 'Error del servidor' });
   }
 });
 
