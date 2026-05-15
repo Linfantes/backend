@@ -203,94 +203,94 @@ app.post('/api/register', async (req, res) => {
   }
 
 });
+
 app.post('/api/login', async (req, res) => {
-
   try {
+    const { dni, password } = req.body;
 
-    const {
-      dni,
-      password
-    } = req.body;
+    if (!dni) {
+      return res.status(400).json({
+        success: false,
+        error: 'DNI es requerido'
+      });
+    }
 
-    // MEDICO
+    // --- PACIENTE ---
+    const [pacientes] = await pool.query(
+      `SELECT * FROM paciente WHERE dni = ?`,
+      [dni]
+    );
+
+    if (pacientes.length > 0) {
+      return res.json({
+        success: true,
+        rol: 'Paciente',
+        usuario: pacientes[0]
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Contraseña es requerida para este usuario'
+      });
+    }
+
+    // --- MEDICO ---
     const [medicos] = await pool.query(
-      `
-      SELECT *
-      FROM medico
-      WHERE dni = ?
-      AND clave_hash = ?
-      `,
+      `SELECT * FROM medico WHERE dni = ? AND clave_hash = ?`,
       [dni, password]
     );
 
     if (medicos.length > 0) {
-
       return res.json({
         success: true,
         rol: 'Doctor',
         usuario: medicos[0]
       });
-
     }
 
-    // ADMISION
+    // --- ADMISION ---
     const [admision] = await pool.query(
-      `
-      SELECT *
-      FROM personal_admision
-      WHERE dni = ?
-      AND clave_hash = ?
-      `,
+      `SELECT * FROM personal_admision WHERE dni = ? AND clave_hash = ?`,
       [dni, password]
     );
 
     if (admision.length > 0) {
-
       return res.json({
         success: true,
         rol: 'Admision',
         usuario: admision[0]
       });
-
     }
 
-    // ADMIN
+    // --- ADMIN ---
     const [admin] = await pool.query(
-      `
-      SELECT *
-      FROM administrador
-      WHERE dni = ?
-      AND clave_hash = ?
-      `,
+      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
       [dni, password]
     );
 
     if (admin.length > 0) {
-
       return res.json({
         success: true,
         rol: 'Admin',
         usuario: admin[0]
       });
-
     }
 
-    res.status(401).json({
+    // Si no existe en ninguna tabla
+    return res.status(404).json({
       success: false,
-      error: 'Credenciales incorrectas'
+      error: 'DNI no registrado o credenciales incorrectas'
     });
 
   } catch (err) {
-
     console.error(err);
-
     res.status(500).json({
       success: false,
-      error: 'Error servidor'
+      error: 'Error en el servidor'
     });
-
   }
-  
 });
 
 app.get('/api/login', async (req, res) => {
@@ -360,6 +360,7 @@ app.get('/api/login', async (req, res) => {
     });
   }
 });
+
 app.post('/api/paciente', async (req, res) => {
 
   try {
@@ -408,6 +409,7 @@ app.post('/api/paciente', async (req, res) => {
   }
 
 });
+
 app.get('/api/doctores', async (req, res) => {
 
   try {
