@@ -25,51 +25,86 @@ app.get('/api/triaje', (req, res) => {
 
 // Ruta triaje POST
 app.post('/api/triaje', async (req, res) => {
-
   try {
-
-   const {
-  temperatura,
-  spo2,
-  pulso,
-} = req.body;
+    const {
+      id_paciente,  // Added patient ID
+      temperatura,
+      spo2,
+      pulso,
+      triage,
+      descripcion
+    } = req.body;
 
     console.log('📥 Datos recibidos:', req.body);
 
     const sql = `
       INSERT INTO signos_vitales
       (
-  temperatura,
-  saturacion_oxigeno,
-  pulso,
-  registrado_por
-)
-     VALUES (?, ?, ?, ?)
+        id_paciente,  -- Added column
+        temperatura,
+        saturacion_oxigeno,
+        pulso,
+        triage,        -- Added triage level
+        descripcion,   -- Added description
+        registrado_por
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `;
 
-   await pool.query(sql, [
-  temperatura,
-  spo2,
-  pulso,
-  'sensor'
-]);
+    await pool.query(sql, [
+      id_paciente,   // Added patient ID
+      temperatura,
+      spo2,
+      pulso,
+      triage,        // Added triage level
+      descripcion,   // Added description
+      'sensor'
+    ]);
 
     res.json({
       success: true,
       message: 'Datos guardados en MySQL'
     });
-
   } catch (err) {
-
     console.error(err);
-
     res.status(500).json({
       success: false,
       error: 'Error al guardar'
     });
-
   }
+});
 
+// Endpoint para obtener paciente por DNI
+app.get('/api/paciente/dni/:dni', async (req, res) => {
+  try {
+    const { dni } = req.params;
+    
+    const sql = `
+      SELECT id_paciente, dni, nombre, apellido, fecha_nacimiento, sexo, created_at
+      FROM paciente
+      WHERE dni = ?
+    `;
+    
+    const [results] = await pool.query(sql, [dni]);
+    
+    if (results.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Paciente no encontrado'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: results[0] // Devolvemos el primer resultado directamente
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener información del paciente'
+    });
+  }
 });
 
 // NUEVA RUTA GET
