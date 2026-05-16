@@ -35,7 +35,6 @@ app.post('/api/triaje', async (req, res) => {
 } = req.body;
 
     console.log('📥 Datos recibidos:', req.body);
-    console.log('TRIAGE:', triage);
 
     const sql = `
       INSERT INTO signos_vitales
