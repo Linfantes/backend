@@ -47,9 +47,15 @@ app.post('/api/triaje', async (req, res) => {
       });
     }
 
+    // SOLUCIÓN ERROR 2: Formatear la fecha para MySQL (YYYY-MM-DD HH:mm:ss)
+    const dateToFormat = timestamp ? new Date(timestamp) : new Date();
+    const mysqlTimestamp = dateToFormat.toISOString().slice(0, 19).replace('T', ' ');
+
+    // SOLUCIÓN ERROR 1: Agregamos 'id_triaje' a la consulta para evitar el error de valor por defecto
     const sql = `
       INSERT INTO signos_vitales
       (
+        id_triaje,
         id_paciente,
         dni_paciente,
         temperatura,
@@ -60,10 +66,11 @@ app.post('/api/triaje', async (req, res) => {
         registrado_por,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await pool.query(sql, [
+      NULL, // Se envía NULL a id_triaje (requiere que la columna acepte NULL en la BD)
       id_paciente,
       dni_paciente,
       temperatura,
@@ -72,7 +79,7 @@ app.post('/api/triaje', async (req, res) => {
       triage,
       descripcion,
       'sensor',
-      timestamp || new Date()
+      mysqlTimestamp // Fecha formateada correctamente
     ]);
 
     res.json({
@@ -80,10 +87,11 @@ app.post('/api/triaje', async (req, res) => {
       message: 'Datos guardados en MySQL'
     });
   } catch (err) {
-    console.error(err);
+    console.error('❌ Error en el servidor:', err);
     res.status(500).json({
       success: false,
-      error: 'Error al guardar'
+      error: 'Error al guardar',
+      details: err.message
     });
   }
 });
