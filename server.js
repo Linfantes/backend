@@ -23,42 +23,56 @@ app.get('/api/triaje', (req, res) => {
   });
 });
 
-// Ruta triaje POST
+// Endpoint actualizado para recibir datos de triage
 app.post('/api/triaje', async (req, res) => {
   try {
     const {
-      id_paciente,  // Added patient ID
+      id_paciente,
+      dni_paciente,
       temperatura,
       spo2,
       pulso,
       triage,
-      descripcion
+      descripcion,
+      timestamp
     } = req.body;
 
     console.log('📥 Datos recibidos:', req.body);
 
+    // Solo guardar si NO es "ESPERANDO"
+    if (triage === 'ESPERANDO') {
+      return res.json({
+        success: true,
+        message: 'Datos no guardados (estado ESPERANDO)'
+      });
+    }
+
     const sql = `
       INSERT INTO signos_vitales
       (
-        id_paciente,  -- Added column
+        id_paciente,
+        dni_paciente,
         temperatura,
         saturacion_oxigeno,
         pulso,
-        triage,        -- Added triage level
-        descripcion,   -- Added description
-        registrado_por
+        triage,
+        descripcion,
+        registrado_por,
+        fecha_registro
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await pool.query(sql, [
-      id_paciente,   // Added patient ID
+      id_paciente,
+      dni_paciente,
       temperatura,
       spo2,
       pulso,
-      triage,        // Added triage level
-      descripcion,   // Added description
-      'sensor'
+      triage,
+      descripcion,
+      'sensor',
+      timestamp || new Date()
     ]);
 
     res.json({
