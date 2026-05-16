@@ -70,7 +70,7 @@ app.post('/api/triaje', async (req, res) => {
     `;
 
     await pool.query(sql, [
-      NULL, // Se envía NULL a id_triaje (requiere que la columna acepte NULL en la BD)
+      null,
       id_paciente,
       dni_paciente,
       temperatura,
