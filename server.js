@@ -32,7 +32,6 @@ app.post('/api/triaje', async (req, res) => {
   temperatura,
   spo2,
   pulso,
-  triage
 } = req.body;
 
     console.log('📥 Datos recibidos:', req.body);
@@ -44,7 +43,6 @@ app.post('/api/triaje', async (req, res) => {
   temperatura,
   saturacion_oxigeno,
   pulso,
-  triage,
   registrado_por
 )
      VALUES (?, ?, ?, ?, ?)
@@ -54,7 +52,6 @@ app.post('/api/triaje', async (req, res) => {
   temperatura,
   spo2,
   pulso,
-  triage,
   'sensor'
 ]);
 
