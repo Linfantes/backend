@@ -58,7 +58,7 @@ app.post('/api/triaje', async (req, res) => {
         triage,
         descripcion,
         registrado_por,
-        fecha_registro
+        created_at
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
