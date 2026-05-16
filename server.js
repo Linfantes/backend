@@ -44,7 +44,7 @@ app.post('/api/triaje', async (req, res) => {
   pulso,
   registrado_por
 )
-     VALUES (?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?)
     `;
 
    await pool.query(sql, [
