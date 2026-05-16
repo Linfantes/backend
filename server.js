@@ -55,7 +55,6 @@ app.post('/api/triaje', async (req, res) => {
     const sql = `
       INSERT INTO signos_vitales
       (
-        id_triaje,
         id_paciente,
         dni_paciente,
         temperatura,
@@ -66,11 +65,10 @@ app.post('/api/triaje', async (req, res) => {
         registrado_por,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await pool.query(sql, [
-      null,
       id_paciente,
       dni_paciente,
       temperatura,
