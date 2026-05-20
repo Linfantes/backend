@@ -2,6 +2,7 @@ const pool = require('./db');
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 
@@ -299,43 +300,80 @@ app.post('/api/login', async (req, res) => {
     
     let usuarioEncontrado = null;
     let rolAsignado = '';
+    let tablaAsignada = ''; 
 
-    // Buscamos secuencialmente en qué tabla está el DNI
+    // Buscamos secuencialmente en qué tabla está el DNI para validar su contraseña
     const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
     if (medicos.length > 0) {
       usuarioEncontrado = medicos[0];
       rolAsignado = 'Doctor';
+      tablaAsignada = 'medico';
     } else {
       const [admision] = await pool.query(`SELECT * FROM personal_admision WHERE dni = ?`, [dni]);
       if (admision.length > 0) {
         usuarioEncontrado = admision[0];
         rolAsignado = 'Admision';
+        tablaAsignada = 'personal_admision';
       } else {
         const [admin] = await pool.query(`SELECT * FROM administrador WHERE dni = ?`, [dni]);
         if (admin.length > 0) {
           usuarioEncontrado = admin[0];
           rolAsignado = 'Admin';
+          tablaAsignada = 'administrador';
         }
       }
     }
 
-    // Si mandó contraseña pero el DNI desapareció o no está en tablas válidas para login
+    // Si no se encontró el usuario en ninguna tabla transaccional de login
     if (!usuarioEncontrado) {
       return res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
+    }
+
+    const intentosActuales = parseInt(usuarioEncontrado.intentos_login, 10) || 0;
+
+    if (intentosActuales >= 5) {
+      return res.status(429).json({ 
+        success: false,
+        error: 'Demasiados intentos de inicio de sesión',
+        details: 'Por seguridad, tu cuenta ha sido temporalmente bloqueada. Contacta al soporte.'
+      });
     }
 
     const match = await bcrypt.compare(password, usuarioEncontrado.clave_hash);
 
     if (match) {
+      await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = 0 WHERE dni = ?`, [dni]);
+
       delete usuarioEncontrado.clave_hash; 
       
+      const payload = {
+        dni: usuarioEncontrado.dni,
+        rol: rolAsignado
+      };
+      const secretKey = 'v1t4l$c4N2026$$';
+      const token = jwt.sign(payload, secretKey, { expiresIn: '12h' });
+
       return res.json({ 
         success: true, 
         rol: rolAsignado, 
-        usuario: usuarioEncontrado 
+        usuario: usuarioEncontrado,
+        token: token 
       });
+
     } else {
-      return res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
+      const nuevosIntentos = intentosActuales + 1;
+      
+      await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = ? WHERE dni = ?`, [nuevosIntentos, dni]);
+      
+      const intentosRestantes = 5 - nuevosIntentos;
+
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Credenciales incorrectas',
+        details: intentosRestantes > 0 
+          ? `Te quedan ${intentosRestantes} intento(s) antes de bloquear la cuenta.` 
+          : 'Tu cuenta ha sido bloqueada tras 5 intentos fallidos.'
+      });
     }
 
   } catch (err) {
