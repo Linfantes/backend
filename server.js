@@ -567,6 +567,90 @@ app.get('/api/paciente/:dni', async (req, res) => {
   }
 
 });
+
+// Obtener lista de pacientes y su estado de triaje para el Dashboard del Doctor
+app.get('/api/pacientes/dashboard', async (req, res) => {
+  try {
+    // Consulta SQL: Selecciona todos los pacientes y busca su ÚLTIMO registro de signos vitales (si existe)
+    const sql = `
+      SELECT 
+        p.id_paciente, 
+        p.dni, 
+        p.nombre, 
+        p.apellido, 
+        p.fecha_nacimiento, 
+        p.sexo,
+        sv.temperatura, 
+        sv.saturacion_oxigeno, 
+        sv.pulso, 
+        sv.triage, 
+        sv.descripcion,
+        sv.created_at AS fecha_triaje
+      FROM paciente p
+      LEFT JOIN signos_vitales sv ON sv.id_signos = (
+        SELECT MAX(id_signos) 
+        FROM signos_vitales 
+        WHERE id_paciente = p.id_paciente
+      )
+      ORDER BY 
+        -- Ordenamos primero los que no han pasado triaje (para darles prioridad si lo deseas), o por fecha
+        sv.created_at DESC, 
+        p.created_at DESC;
+    `;
+
+    const [resultados] = await pool.query(sql);
+
+    // Mapear y formatear los resultados para el frontend
+    const pacientesFormateados = resultados.map(pac => {
+      
+      // Si el paciente tiene temperatura registrada, asumimos que ya pasó por triaje
+      const pasoTriaje = pac.temperatura !== null;
+
+      // Lógica simple para determinar el estado de salud (puedes ajustarla según tus reglas médicas)
+      let estadoSalud = 'Pendiente';
+      
+      if (pasoTriaje) {
+        const pulso = parseInt(pac.pulso);
+        const oxigeno = parseInt(pac.saturacion_oxigeno);
+        const temp = parseFloat(pac.temperatura);
+
+        if (oxigeno < 90 || pulso > 110 || temp > 38.5) {
+          estadoSalud = 'Crítico';
+        } else if (oxigeno < 95 || pulso > 100 || temp > 37.5) {
+          estadoSalud = 'Requiere atención';
+        } else {
+          estadoSalud = 'Normal';
+        }
+      }
+
+      return {
+        id_paciente: pac.id_paciente,
+        dni: pac.dni,
+        nombreCompleto: `${pac.nombre} ${pac.apellido}`,
+        pasoTriaje: pasoTriaje,
+        estado: estadoSalud, // 'Normal', 'Requiere atención', 'Crítico' o 'Pendiente'
+        signosVitales: pasoTriaje ? {
+          temperatura: `${pac.temperatura}°C`,
+          saturacion_oxigeno: `${pac.saturacion_oxigeno}%`,
+          pulso: `${pac.pulso} bpm`,
+          nivelTriaje: pac.triage, // El nivel de triage guardado en BD
+          descripcion: pac.descripcion,
+          fecha: pac.fecha_triaje
+        } : null // Si no ha pasado triaje, mandamos null
+      };
+    });
+
+    res.json({
+      success: true,
+      data: pacientesFormateados
+    });
+
+  } catch (err) {
+    console.error('Error al obtener pacientes del dashboard:', err);
+    res.status(500).json({ success: false, error: 'Error al obtener la lista de pacientes' });
+  }
+});
+
 app.listen(4000, () => {
   console.log('Servidor corriendo en Railway');
 });
