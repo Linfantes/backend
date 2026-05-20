@@ -152,10 +152,10 @@ app.get('/api/signos', async (req, res) => {
   }
 
 });
+
+// Registrar en panel de administrador a los usuarios
 app.post('/api/register', async (req, res) => {
-
   try {
-
     const {
       nombre,
       apellido,
@@ -169,28 +169,33 @@ app.post('/api/register', async (req, res) => {
 
     if (rol === 'Doctor') {
       tabla = 'medico';
-    }
-   else if (
-  rol === 'Admision' ||
-  rol === 'Admisión'
-) {
-  tabla = 'personal_admision';
-}
-    else if (rol === 'Admin') {
+    } else if (rol === 'Admision' || rol === 'Admisión') {
+      tabla = 'personal_admision';
+    } else if (rol === 'Admin') {
       tabla = 'administrador';
-    }
-    else {
+    } else {
       return res.status(400).json({
         error: 'Rol inválido'
       });
     }
 
-    const usuario = dni;
+    const checkSql = `SELECT dni FROM ${tabla} WHERE dni = ?`;
+    const [filas] = await pool.query(checkSql, [dni]);
 
+    if (filas && filas.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: 'El DNI ya se encuentra registrado en el sistema'
+      });
+    }
+
+    const saltRounds = 10; 
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
+    const usuario = dni;
     let sql = '';
 
     if (rol === 'Doctor') {
-
       sql = `
         INSERT INTO medico
         (
@@ -210,11 +215,10 @@ app.post('/api/register', async (req, res) => {
         apellido,
         especialidad,
         usuario,
-        password
+        passwordHash
       ]);
 
     } else {
-
       sql = `
         INSERT INTO ${tabla}
         (
@@ -232,28 +236,25 @@ app.post('/api/register', async (req, res) => {
         nombre,
         apellido,
         usuario,
-        password
+        passwordHash
       ]);
-
     }
 
     res.json({
       success: true,
-      message: 'Usuario registrado'
+      message: 'Usuario registrado correctamente'
     });
 
   } catch (err) {
-
     console.error(err);
-
     res.status(500).json({
       success: false,
       error: 'Error al registrar usuario'
     });
-
   }
-
 });
+
+// Hacer login
 app.post('/api/login', async (req, res) => {
   try {
     const { dni, password } = req.body;
@@ -263,7 +264,7 @@ app.post('/api/login', async (req, res) => {
     // ====================================================================
     if (!password) {
       
-      // 1. Verificar si es Paciente (Ajusta el nombre de tu tabla de pacientes si es diferente)
+      // 1. Verificar si es Paciente
       const [pacientes] = await pool.query(`SELECT * FROM paciente WHERE dni = ?`, [dni]);
       if (pacientes.length > 0) {
         return res.json({ success: true, rol: 'Paciente', usuario: pacientes[0] });
@@ -272,7 +273,7 @@ app.post('/api/login', async (req, res) => {
       // 2. Verificar si es Médico
       const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
       if (medicos.length > 0) {
-        return res.json({ success: true, rol: 'Doctor' }); // Devolvemos success para que el frontend pida contraseña
+        return res.json({ success: true, rol: 'Doctor' }); 
       }
 
       // 3. Verificar si es Admisión
@@ -295,29 +296,46 @@ app.post('/api/login', async (req, res) => {
     // PASO 2: VERIFICAR DNI + CONTRASEÑA (Cuando el frontend ejecuta manejarLogin)
     // ====================================================================
     
-    // MÉDICO
-    const [medicos] = await pool.query(
-      `SELECT * FROM medico WHERE dni = ? AND clave_hash = ?`, 
-      [dni, password]
-    );
-    if (medicos.length > 0) return res.json({ success: true, rol: 'Doctor', usuario: medicos[0] });
+    let usuarioEncontrado = null;
+    let rolAsignado = '';
 
-    // ADMISIÓN
-    const [admision] = await pool.query(
-      `SELECT * FROM personal_admision WHERE dni = ? AND clave_hash = ?`, 
-      [dni, password]
-    );
-    if (admision.length > 0) return res.json({ success: true, rol: 'Admision', usuario: admision[0] });
+    // Buscamos secuencialmente en qué tabla está el DNI
+    const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
+    if (medicos.length > 0) {
+      usuarioEncontrado = medicos[0];
+      rolAsignado = 'Doctor';
+    } else {
+      const [admision] = await pool.query(`SELECT * FROM personal_admision WHERE dni = ?`, [dni]);
+      if (admision.length > 0) {
+        usuarioEncontrado = admision[0];
+        rolAsignado = 'Admision';
+      } else {
+        const [admin] = await pool.query(`SELECT * FROM administrador WHERE dni = ?`, [dni]);
+        if (admin.length > 0) {
+          usuarioEncontrado = admin[0];
+          rolAsignado = 'Admin';
+        }
+      }
+    }
 
-    // ADMIN
-    const [admin] = await pool.query(
-      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`, 
-      [dni, password]
-    );
-    if (admin.length > 0) return res.json({ success: true, rol: 'Admin', usuario: admin[0] });
+    // Si mandó contraseña pero el DNI desapareció o no está en tablas válidas para login
+    if (!usuarioEncontrado) {
+      return res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
+    }
 
-    // Si llega aquí, el DNI existe pero la contraseña está mal
-    res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
+    const match = await bcrypt.compare(password, usuarioEncontrado.clave_hash);
+
+    if (match) {
+      delete usuarioEncontrado.clave_hash; 
+      
+      return res.json({ 
+        success: true, 
+        rol: rolAsignado, 
+        usuario: usuarioEncontrado 
+      });
+    } else {
+      return res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
+    }
 
   } catch (err) {
     console.error(err);
