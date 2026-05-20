@@ -10,21 +10,12 @@ const pool = mysql.createPool({
 });
 
 (async () => {
-
   try {
-
     const connection = await pool.getConnection();
-
-    console.log('✅ CONECTADO A MYSQL');
-
+    console.log(' CONECTADO A MYSQL');
     connection.release();
-
   } catch (err) {
-
-    console.error('❌ ERROR MYSQL:', err);
-
+    console.error('ERROR MYSQL:', err);
   }
-
 })();
-
 module.exports = pool;
