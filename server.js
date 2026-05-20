@@ -1,6 +1,7 @@
 const pool = require('./db');
 const express = require('express');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
 
 const app = express();
 
@@ -529,5 +530,5 @@ app.get('/api/paciente/:dni', async (req, res) => {
 
 });
 app.listen(4000, () => {
-  console.log('🚀 Servidor corriendo en puerto 4000');
+  console.log('Servidor corriendo en Railway');
 });
