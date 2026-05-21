@@ -630,6 +630,9 @@ ORDER BY sv.created_at DESC
   }
 });
 
+// === CRUD DE USUARIOS (Administrador) ===
+
+// 1. OBTENER todos los usuarios (Médicos y Personal de Admisión)
 app.get('/api/usuarios', async (req, res) => {
   try {
     const [medicos] = await pool.query(`
@@ -651,6 +654,7 @@ app.get('/api/usuarios', async (req, res) => {
   }
 });
 
+// 2. ACTUALIZAR un usuario
 app.put('/api/usuarios/:dni/estado', async (req,res)=>{
 
    console.log("RUTA ESTADO EJECUTADA");
@@ -658,16 +662,17 @@ app.put('/api/usuarios/:dni/estado', async (req,res)=>{
    try{
 
       const {dni}=req.params;
-      const {activo}=req.body;
-
-      console.log(dni, activo);
+      
+      
 
     const {
       nombre,
       apellido,
       especialidad,
-      activo
+      
     } = req.body;
+
+    // MÉDICO
 
     let [rows] = await pool.query(
       'SELECT * FROM medico WHERE dni=?',
@@ -681,13 +686,11 @@ app.put('/api/usuarios/:dni/estado', async (req,res)=>{
          SET nombre=COALESCE(?,nombre),
              apellido=COALESCE(?,apellido),
              especialidad=COALESCE(?,especialidad),
-             activo=COALESCE(?,activo)
          WHERE dni=?`,
         [
           nombre,
           apellido,
           especialidad,
-          activo,
           dni
         ]
       );
@@ -699,6 +702,8 @@ app.put('/api/usuarios/:dni/estado', async (req,res)=>{
       });
 
     }
+
+    // ADMISION
 
     [rows] = await pool.query(
       'SELECT * FROM personal_admision WHERE dni=?',
@@ -747,16 +752,21 @@ app.put('/api/usuarios/:dni/estado', async (req,res)=>{
   }
 });
 
+
+// GET /api/users - Obtener todos los usuarios
 app.get('/api/users', async (req, res) => {
   try {
     const usuarios = [];
 
+    // Obtener médicos
     const [medicos] = await pool.query('SELECT *, "Doctor" as rol FROM medico');
     usuarios.push(...medicos);
 
+    // Obtener personal de admisión
     const [admision] = await pool.query('SELECT *, "Admision" as rol FROM personal_admision');
     usuarios.push(...admision);
 
+    // Obtener administradores
     const [admin] = await pool.query('SELECT *, "Admin" as rol FROM administrador');
     usuarios.push(...admin);
 
@@ -767,6 +777,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// PUT /api/users/:id - Actualizar usuario
 app.put('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -816,6 +827,7 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
+// DELETE /api/users/:id - Eliminar usuario
 app.get('/api/users', async (req,res)=>{
 
    try{
