@@ -1,3 +1,4 @@
+const path = require('path');
 const pool = require('./db');
 const express = require('express');
 const cors = require('cors');
@@ -8,8 +9,8 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'triaje', 'build')));
 
-// Ruta principal
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -17,7 +18,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// Ruta triaje GET
 app.get('/api/triaje', (req, res) => {
   res.json({
     ok: true,
@@ -25,7 +25,6 @@ app.get('/api/triaje', (req, res) => {
   });
 });
 
-// Endpoint actualizado para recibir datos de triage
 app.post('/api/triaje', async (req, res) => {
   try {
     const {
@@ -39,9 +38,8 @@ app.post('/api/triaje', async (req, res) => {
       timestamp
     } = req.body;
 
-    console.log('📥 Datos recibidos:', req.body);
+    console.log(' Datos recibidos:', req.body);
 
-    // Solo guardar si NO es "ESPERANDO"
     if (triage === 'ESPERANDO') {
       return res.json({
         success: true,
@@ -49,11 +47,9 @@ app.post('/api/triaje', async (req, res) => {
       });
     }
 
-    // SOLUCIÓN ERROR 2: Formatear la fecha para MySQL (YYYY-MM-DD HH:mm:ss)
     const dateToFormat = timestamp ? new Date(timestamp) : new Date();
     const mysqlTimestamp = dateToFormat.toISOString().slice(0, 19).replace('T', ' ');
 
-    // SOLUCIÓN ERROR 1: Agregamos 'id_triaje' a la consulta para evitar el error de valor por defecto
     const sql = `
       INSERT INTO signos_vitales
       (
@@ -79,7 +75,7 @@ app.post('/api/triaje', async (req, res) => {
       triage,
       descripcion,
       'sensor',
-      mysqlTimestamp // Fecha formateada correctamente
+      mysqlTimestamp
     ]);
 
     res.json({
@@ -87,7 +83,7 @@ app.post('/api/triaje', async (req, res) => {
       message: 'Datos guardados en MySQL'
     });
   } catch (err) {
-    console.error('❌ Error en el servidor:', err);
+    console.error(' Error en el servidor:', err);
     res.status(500).json({
       success: false,
       error: 'Error al guardar',
@@ -96,29 +92,28 @@ app.post('/api/triaje', async (req, res) => {
   }
 });
 
-// Endpoint para obtener paciente por DNI
 app.get('/api/paciente/dni/:dni', async (req, res) => {
   try {
     const { dni } = req.params;
-    
+
     const sql = `
       SELECT id_paciente, dni, nombre, apellido, fecha_nacimiento, sexo, created_at
       FROM paciente
       WHERE dni = ?
     `;
-    
+
     const [results] = await pool.query(sql, [dni]);
-    
+
     if (results.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'Paciente no encontrado'
       });
     }
-    
+
     res.json({
       success: true,
-      data: results[0] // Devolvemos el primer resultado directamente
+      data: results[0]
     });
   } catch (err) {
     console.error(err);
@@ -129,7 +124,6 @@ app.get('/api/paciente/dni/:dni', async (req, res) => {
   }
 });
 
-// NUEVA RUTA GET
 app.get('/api/signos', async (req, res) => {
 
   try {
@@ -155,7 +149,6 @@ app.get('/api/signos', async (req, res) => {
 
 });
 
-// Registrar en panel de administrador a los usuarios
 app.post('/api/register', async (req, res) => {
   try {
     const {
@@ -191,7 +184,7 @@ app.post('/api/register', async (req, res) => {
       });
     }
 
-    const saltRounds = 10; 
+    const saltRounds = 10; { }
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
     const usuario = dni;
@@ -256,53 +249,39 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// Hacer login
 app.post('/api/login', async (req, res) => {
   try {
     const { dni, password } = req.body;
 
-    // ====================================================================
-    // PASO 1: VERIFICAR SOLO DNI (Cuando el frontend ejecuta verificarDni)
-    // ====================================================================
     if (!password) {
-      
-      // 1. Verificar si es Paciente
+
       const [pacientes] = await pool.query(`SELECT * FROM paciente WHERE dni = ?`, [dni]);
       if (pacientes.length > 0) {
         return res.json({ success: true, rol: 'Paciente', usuario: pacientes[0] });
       }
 
-      // 2. Verificar si es Médico
       const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
       if (medicos.length > 0) {
-        return res.json({ success: true, rol: 'Doctor' }); 
+        return res.json({ success: true, rol: 'Doctor' });
       }
 
-      // 3. Verificar si es Admisión
       const [admision] = await pool.query(`SELECT * FROM personal_admision WHERE dni = ?`, [dni]);
       if (admision.length > 0) {
         return res.json({ success: true, rol: 'Admision' });
       }
 
-      // 4. Verificar si es Admin
       const [admin] = await pool.query(`SELECT * FROM administrador WHERE dni = ?`, [dni]);
       if (admin.length > 0) {
         return res.json({ success: true, rol: 'Admin' });
       }
 
-      // Si no está en NINGUNA tabla:
       return res.status(404).json({ success: false, error: 'DNI no registrado' });
     }
 
-    // ====================================================================
-    // PASO 2: VERIFICAR DNI + CONTRASEÑA (Cuando el frontend ejecuta manejarLogin)
-    // ====================================================================
-    
     let usuarioEncontrado = null;
     let rolAsignado = '';
-    let tablaAsignada = ''; 
+    let tablaAsignada = '';
 
-    // Buscamos secuencialmente en qué tabla está el DNI para validar su contraseña
     const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
     if (medicos.length > 0) {
       usuarioEncontrado = medicos[0];
@@ -324,7 +303,6 @@ app.post('/api/login', async (req, res) => {
       }
     }
 
-    // Si no se encontró el usuario en ninguna tabla transaccional de login
     if (!usuarioEncontrado) {
       return res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
     }
@@ -332,7 +310,7 @@ app.post('/api/login', async (req, res) => {
     const intentosActuales = parseInt(usuarioEncontrado.intentos_login, 10) || 0;
 
     if (intentosActuales >= 5) {
-      return res.status(429).json({ 
+      return res.status(429).json({
         success: false,
         error: 'Demasiados intentos de inicio de sesión',
         details: 'Por seguridad, tu cuenta ha sido temporalmente bloqueada. Contacta al soporte.'
@@ -344,8 +322,8 @@ app.post('/api/login', async (req, res) => {
     if (match) {
       await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = 0 WHERE dni = ?`, [dni]);
 
-      delete usuarioEncontrado.clave_hash; 
-      
+      delete usuarioEncontrado.clave_hash;
+
       const payload = {
         dni: usuarioEncontrado.dni,
         rol: rolAsignado
@@ -353,25 +331,25 @@ app.post('/api/login', async (req, res) => {
       const secretKey = 'v1t4l$c4N2026$$';
       const token = jwt.sign(payload, secretKey, { expiresIn: '12h' });
 
-      return res.json({ 
-        success: true, 
-        rol: rolAsignado, 
+      return res.json({
+        success: true,
+        rol: rolAsignado,
         usuario: usuarioEncontrado,
-        token: token 
+        token: token
       });
 
     } else {
       const nuevosIntentos = intentosActuales + 1;
-      
+
       await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = ? WHERE dni = ?`, [nuevosIntentos, dni]);
-      
+
       const intentosRestantes = 5 - nuevosIntentos;
 
-      return res.status(401).json({ 
-        success: false, 
+      return res.status(401).json({
+        success: false,
         error: 'Credenciales incorrectas',
-        details: intentosRestantes > 0 
-          ? `Te quedan ${intentosRestantes} intento(s) antes de bloquear la cuenta.` 
+        details: intentosRestantes > 0
+          ? `Te quedan ${intentosRestantes} intento(s) antes de bloquear la cuenta.`
           : 'Tu cuenta ha sido bloqueada tras 5 intentos fallidos.'
       });
     }
@@ -393,7 +371,6 @@ app.get('/api/login', async (req, res) => {
       });
     }
 
-    // Buscar usuario en tabla medico
     const [medicos] = await pool.query(
       `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
       [dni, password]
@@ -407,7 +384,6 @@ app.get('/api/login', async (req, res) => {
       });
     }
 
-    // Buscar en personal_admision
     const [admision] = await pool.query(
       `SELECT * FROM personal_admision WHERE dni = ? AND clave_hash = ?`,
       [dni, password]
@@ -421,7 +397,6 @@ app.get('/api/login', async (req, res) => {
       });
     }
 
-    // Buscar en administrador
     const [admin] = await pool.query(
       `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
       [dni, password]
@@ -435,7 +410,6 @@ app.get('/api/login', async (req, res) => {
       });
     }
 
-    // Si no coincide en ninguna tabla
     return res.status(401).json({
       success: false,
       error: 'Credenciales incorrectas'
@@ -568,47 +542,52 @@ app.get('/api/paciente/:dni', async (req, res) => {
 
 });
 
-// Obtener lista de pacientes y su estado de triaje para el Dashboard del Doctor
 app.get('/api/pacientes/dashboard', async (req, res) => {
   try {
-    // Consulta SQL: Selecciona todos los pacientes y busca su ÚLTIMO registro de signos vitales (si existe)
+
     const sql = `
-      SELECT 
-        p.id_paciente, 
-        p.dni, 
-        p.nombre, 
-        p.apellido, 
-        p.fecha_nacimiento, 
-        p.sexo,
-        sv.temperatura, 
-        sv.saturacion_oxigeno, 
-        sv.pulso, 
-        sv.triage, 
-        sv.descripcion,
-        sv.created_at AS fecha_triaje
-      FROM paciente p
-      LEFT JOIN signos_vitales sv ON sv.id_signos = (
-        SELECT MAX(id_signos) 
-        FROM signos_vitales 
-        WHERE id_paciente = p.id_paciente
-      )
-      ORDER BY 
-        -- Ordenamos primero los que no han pasado triaje (para darles prioridad si lo deseas), o por fecha
-        sv.created_at DESC, 
-        p.created_at DESC;
-    `;
+      SELECT
+
+p.id_paciente,
+p.dni,
+p.nombre,
+p.apellido,
+p.estado_atencion,
+
+sv.temperatura,
+sv.saturacion_oxigeno,
+sv.pulso,
+sv.triage,
+sv.descripcion,
+
+sv.created_at AS fecha_triaje
+
+FROM paciente p
+
+INNER JOIN signos_vitales sv
+ON sv.id_signos=(
+
+SELECT MAX(id_signos)
+
+FROM signos_vitales
+
+WHERE id_paciente=p.id_paciente
+
+)
+
+WHERE DATE(sv.created_at)=CURDATE()
+
+ORDER BY sv.created_at DESC
+`;
 
     const [resultados] = await pool.query(sql);
 
-    // Mapear y formatear los resultados para el frontend
     const pacientesFormateados = resultados.map(pac => {
-      
-      // Si el paciente tiene temperatura registrada, asumimos que ya pasó por triaje
+
       const pasoTriaje = pac.temperatura !== null;
 
-      // Lógica simple para determinar el estado de salud (puedes ajustarla según tus reglas médicas)
       let estadoSalud = 'Pendiente';
-      
+
       if (pasoTriaje) {
         const pulso = parseInt(pac.pulso);
         const oxigeno = parseInt(pac.saturacion_oxigeno);
@@ -628,15 +607,15 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
         dni: pac.dni,
         nombreCompleto: `${pac.nombre} ${pac.apellido}`,
         pasoTriaje: pasoTriaje,
-        estado: estadoSalud, // 'Normal', 'Requiere atención', 'Crítico' o 'Pendiente'
+        estado: estadoSalud,
         signosVitales: pasoTriaje ? {
           temperatura: `${pac.temperatura}°C`,
           saturacion_oxigeno: `${pac.saturacion_oxigeno}%`,
           pulso: `${pac.pulso} bpm`,
-          nivelTriaje: pac.triage, // El nivel de triage guardado en BD
+          nivelTriaje: pac.triage,
           descripcion: pac.descripcion,
           fecha: pac.fecha_triaje
-        } : null // Si no ha pasado triaje, mandamos null
+        } : null
       };
     });
 
@@ -649,6 +628,244 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
     console.error('Error al obtener pacientes del dashboard:', err);
     res.status(500).json({ success: false, error: 'Error al obtener la lista de pacientes' });
   }
+});
+
+app.get('/api/usuarios', async (req, res) => {
+  try {
+    const [medicos] = await pool.query(`
+    SELECT id_medico as id, dni, nombre,  apellido, especialidad, usuario,  activo, 'Doctor' as rol,  created_at
+    FROM medico
+    WHERE activo=1`);
+
+    const [admision] = await pool.query(`
+      SELECT id_personal as id, dni, nombre, apellido, NULL as especialidad, usuario, activo, 'Admision' as rol, created_at 
+      FROM personal_admision
+    `);
+
+    const usuarios = [...medicos, ...admision].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    res.json({ success: true, data: usuarios });
+  } catch (err) {
+    console.error('Error al obtener usuarios:', err);
+    res.status(500).json({ success: false, error: 'Error al obtener usuarios' });
+  }
+});
+
+app.put('/api/usuarios/:dni/estado', async (req,res)=>{
+
+   console.log("RUTA ESTADO EJECUTADA");
+
+   try{
+
+      const {dni}=req.params;
+      const {activo}=req.body;
+
+      console.log(dni, activo);
+
+    const {
+      nombre,
+      apellido,
+      especialidad,
+      activo
+    } = req.body;
+
+    let [rows] = await pool.query(
+      'SELECT * FROM medico WHERE dni=?',
+      [dni]
+    );
+
+    if (rows.length > 0) {
+
+      const [result] = await pool.query(
+        `UPDATE medico
+         SET nombre=COALESCE(?,nombre),
+             apellido=COALESCE(?,apellido),
+             especialidad=COALESCE(?,especialidad),
+             activo=COALESCE(?,activo)
+         WHERE dni=?`,
+        [
+          nombre,
+          apellido,
+          especialidad,
+          activo,
+          dni
+        ]
+      );
+
+      return res.json({
+        success: true,
+        message: 'Doctor actualizado',
+        affected: result.affectedRows
+      });
+
+    }
+
+    [rows] = await pool.query(
+      'SELECT * FROM personal_admision WHERE dni=?',
+      [dni]
+    );
+
+    if (rows.length > 0) {
+
+      const [result] = await pool.query(
+        `UPDATE personal_admision
+         SET nombre=COALESCE(?,nombre),
+             apellido=COALESCE(?,apellido),
+             activo=COALESCE(?,activo)
+         WHERE dni=?`,
+        [
+          nombre,
+          apellido,
+          activo,
+          dni
+        ]
+      );
+
+      return res.json({
+        success: true,
+        message: 'Personal actualizado',
+        affected: result.affectedRows
+      });
+
+    }
+
+    res.status(404).json({
+      success: false,
+      error: 'Usuario no encontrado'
+    });
+
+  }
+  catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      success: false,
+      error: 'Error actualizar'
+    });
+
+  }
+});
+
+app.get('/api/users', async (req, res) => {
+  try {
+    const usuarios = [];
+
+    const [medicos] = await pool.query('SELECT *, "Doctor" as rol FROM medico');
+    usuarios.push(...medicos);
+
+    const [admision] = await pool.query('SELECT *, "Admision" as rol FROM personal_admision');
+    usuarios.push(...admision);
+
+    const [admin] = await pool.query('SELECT *, "Admin" as rol FROM administrador');
+    usuarios.push(...admin);
+
+    res.json(usuarios);
+  } catch (err) {
+    console.error('Error al obtener usuarios:', err);
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, apellido, dni, password, especialidad, rol } = req.body;
+
+    let tabla = '';
+    if (rol === 'Doctor') {
+      tabla = 'medico';
+    } else if (rol === 'Admision' || rol === 'Admisión') {
+      tabla = 'personal_admision';
+    } else if (rol === 'Admin') {
+      tabla = 'administrador';
+    }
+
+    if (!tabla) {
+      return res.status(400).json({ success: false, error: 'Rol inválido' });
+    }
+
+    let sql = `UPDATE ${tabla} SET nombre = ?, apellido = ?`;
+    let params = [nombre, apellido];
+
+    if (password) {
+      const saltRounds = 10;
+      const passwordHash = await bcrypt.hash(password, saltRounds);
+      sql += ', clave_hash = ?';
+      params.push(passwordHash);
+    }
+
+    if (especialidad && tabla === 'medico') {
+      sql += ', especialidad = ?';
+      params.push(especialidad);
+    }
+
+    sql += ' WHERE dni = ?';
+    params.push(id);
+
+    const [result] = await pool.query(sql, params);
+
+    if (result.affectedRows > 0) {
+      res.json({ success: true, message: 'Usuario actualizado correctamente' });
+    } else {
+      res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+    }
+  } catch (err) {
+    console.error('Error al actualizar usuario:', err);
+    res.status(500).json({ success: false, error: 'Error al actualizar usuario' });
+  }
+});
+
+app.get('/api/users', async (req,res)=>{
+
+   try{
+
+      const usuarios=[];
+
+      const [medicos]=await pool.query(`
+         SELECT *,
+         'Doctor' AS rol
+         FROM medico
+      `);
+
+      usuarios.push(...medicos);
+
+      const [admision]=await pool.query(`
+         SELECT *,
+         'Admision' AS rol
+         FROM personal_admision
+      `);
+
+      usuarios.push(...admision);
+
+      const [admin]=await pool.query(`
+         SELECT *,
+         'Admin' AS rol
+         FROM administrador
+      `);
+
+      usuarios.push(...admin);
+
+      res.json(usuarios);
+
+   }
+   catch(err){
+
+      console.log(err);
+
+      res.status(500).json({
+         success:false
+      });
+
+   }
+
+});
+
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Ruta API no encontrada' });
+  }
+  res.sendFile(path.join(__dirname, 'triaje', 'build', 'index.html'));
 });
 
 app.listen(4000, () => {
