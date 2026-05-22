@@ -633,27 +633,42 @@ ORDER BY sv.created_at DESC
 // === CRUD DE USUARIOS (Administrador) ===
 
 // 1. OBTENER todos los usuarios (Médicos y Personal de Admisión)
+// OBTENER todos los usuarios (Médicos, Admisión y Administradores)
 app.get('/api/usuarios', async (req, res) => {
   try {
+    // 1. Traes a los médicos...
     const [medicos] = await pool.query(`
-    SELECT id_medico as id, dni, nombre,  apellido, especialidad, usuario,  activo, 'Doctor' as rol,  created_at
-    FROM medico
-    WHERE activo=1`);
-
+      SELECT id_medico AS id, dni, nombre, apellido, especialidad, usuario, activo, 'Doctor' AS rol, created_at 
+      FROM medico
+    `);
+    console.log('📋 Médicos encontrados:', medicos.length);
+    
+    // 2. Traes al personal de admisión...
     const [admision] = await pool.query(`
-      SELECT id_personal as id, dni, nombre, apellido, NULL as especialidad, usuario, activo, 'Admision' as rol, created_at 
+      SELECT id_personal AS id, dni, nombre, apellido, NULL AS especialidad, usuario, activo, 'Admision' AS rol, created_at 
       FROM personal_admision
     `);
+    console.log('📋 Personal Admisión encontrado:', admision.length);
 
-    const usuarios = [...medicos, ...admision].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    // 3. AHORA SÍ, traes a los administradores AQUÍ:
+    const [admin] = await pool.query(`
+      SELECT id_administrador AS id, dni, nombre, apellido, NULL AS especialidad, usuario, activo, 'Admin' AS rol, created_at
+      FROM administrador
+    `);
+    console.log('📋 Administradores encontrados:', admin.length);
+    console.log('📋 Datos de administradores:', admin);
 
-    res.json({ success: true, data: usuarios });
-  } catch (err) {
-    console.error('Error al obtener usuarios:', err);
-    res.status(500).json({ success: false, error: 'Error al obtener usuarios' });
+    // 4. Unes a todos en un solo arreglo y lo envías al frontend
+    const todosLosUsuarios = [...medicos, ...admision, ...admin];
+    console.log('📋 TOTAL de usuarios:', todosLosUsuarios.length);
+    
+    res.json({ success: true, data: todosLosUsuarios });
+
+  } catch (error) {
+    console.error('❌ Error en /api/usuarios:', error);
+    res.status(500).json({ success: false, message: 'Error al obtener usuarios' });
   }
 });
-
 // 2. ACTUALIZAR un usuario
 app.put('/api/usuarios/:dni/estado', async (req,res)=>{
 
@@ -754,28 +769,7 @@ app.put('/api/usuarios/:dni/estado', async (req,res)=>{
 
 
 // GET /api/users - Obtener todos los usuarios
-app.get('/api/users', async (req, res) => {
-  try {
-    const usuarios = [];
 
-    // Obtener médicos
-    const [medicos] = await pool.query('SELECT *, "Doctor" as rol FROM medico');
-    usuarios.push(...medicos);
-
-    // Obtener personal de admisión
-    const [admision] = await pool.query('SELECT *, "Admision" as rol FROM personal_admision');
-    usuarios.push(...admision);
-
-    // Obtener administradores
-    const [admin] = await pool.query('SELECT *, "Admin" as rol FROM administrador');
-    usuarios.push(...admin);
-
-    res.json(usuarios);
-  } catch (err) {
-    console.error('Error al obtener usuarios:', err);
-    res.status(500).json({ error: 'Error al obtener usuarios' });
-  }
-});
 
 // PUT /api/users/:id - Actualizar usuario
 app.put('/api/users/:id', async (req, res) => {
@@ -828,50 +822,7 @@ app.put('/api/users/:id', async (req, res) => {
 });
 
 // DELETE /api/users/:id - Eliminar usuario
-app.get('/api/users', async (req,res)=>{
 
-   try{
-
-      const usuarios=[];
-
-      const [medicos]=await pool.query(`
-         SELECT *,
-         'Doctor' AS rol
-         FROM medico
-      `);
-
-      usuarios.push(...medicos);
-
-      const [admision]=await pool.query(`
-         SELECT *,
-         'Admision' AS rol
-         FROM personal_admision
-      `);
-
-      usuarios.push(...admision);
-
-      const [admin]=await pool.query(`
-         SELECT *,
-         'Admin' AS rol
-         FROM administrador
-      `);
-
-      usuarios.push(...admin);
-
-      res.json(usuarios);
-
-   }
-   catch(err){
-
-      console.log(err);
-
-      res.status(500).json({
-         success:false
-      });
-
-   }
-
-});
 
 app.use((req, res) => {
   if (req.path.startsWith('/api/')) {
