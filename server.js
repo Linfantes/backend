@@ -633,143 +633,107 @@ ORDER BY sv.created_at DESC
 // === CRUD DE USUARIOS (Administrador) ===
 
 // 1. OBTENER todos los usuarios (Médicos y Personal de Admisión)
-// OBTENER todos los usuarios (Médicos, Admisión y Administradores)
 app.get('/api/usuarios', async (req, res) => {
   try {
-    // 1. Traes a los médicos...
     const [medicos] = await pool.query(`
-      SELECT id_medico AS id, dni, nombre, apellido, especialidad, usuario, activo, 'Doctor' AS rol, created_at 
+      SELECT id_medico as id, dni, nombre, apellido, especialidad, usuario, activo, 'Doctor' as rol, created_at 
       FROM medico
     `);
-    console.log('📋 Médicos encontrados:', medicos.length);
-    
-    // 2. Traes al personal de admisión...
+
     const [admision] = await pool.query(`
-      SELECT id_personal AS id, dni, nombre, apellido, NULL AS especialidad, usuario, activo, 'Admision' AS rol, created_at 
+      SELECT id_personal as id, dni, nombre, apellido, NULL as especialidad, usuario, activo, 'Admision' as rol, created_at 
       FROM personal_admision
     `);
-    console.log('📋 Personal Admisión encontrado:', admision.length);
 
-    // 3. AHORA SÍ, traes a los administradores AQUÍ:
-    const [admin] = await pool.query(`
-      SELECT id_administrador AS id, dni, nombre, apellido, NULL AS especialidad, usuario, activo, 'Admin' AS rol, created_at
-      FROM administrador
-    `);
-    console.log('📋 Administradores encontrados:', admin.length);
-    console.log('📋 Datos de administradores:', admin);
+    const usuarios = [...medicos, ...admision].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    // 4. Unes a todos en un solo arreglo y lo envías al frontend
-    const todosLosUsuarios = [...medicos, ...admision, ...admin];
-    console.log('📋 TOTAL de usuarios:', todosLosUsuarios.length);
-    
-    res.json({ success: true, data: todosLosUsuarios });
-
-  } catch (error) {
-    console.error('❌ Error en /api/usuarios:', error);
-    res.status(500).json({ success: false, message: 'Error al obtener usuarios' });
+    res.json({ success: true, data: usuarios });
+  } catch (err) {
+    console.error('Error al obtener usuarios:', err);
+    res.status(500).json({ success: false, error: 'Error al obtener usuarios' });
   }
 });
+
 // 2. ACTUALIZAR un usuario
-app.put('/api/usuarios/:dni/estado', async (req,res)=>{
+app.put('/api/usuarios/:dni', async (req, res) => {
+  try {
+    const { dni } = req.params;
+    const { nombre, apellido, especialidad, activo } = req.body;
 
-   console.log("RUTA ESTADO EJECUTADA");
-
-   try{
-
-      const {dni}=req.params;
-      
-      
-
-    const {
-      nombre,
-      apellido,
-      especialidad,
-      
-    } = req.body;
-
-    // MÉDICO
-
-    let [rows] = await pool.query(
-      'SELECT * FROM medico WHERE dni=?',
-      [dni]
-    );
-
+    // Verificar si es médico
+    let [rows] = await pool.query('SELECT * FROM medico WHERE dni = ?', [dni]);
     if (rows.length > 0) {
-
-      const [result] = await pool.query(
-        `UPDATE medico
-         SET nombre=COALESCE(?,nombre),
-             apellido=COALESCE(?,apellido),
-             especialidad=COALESCE(?,especialidad),
-         WHERE dni=?`,
-        [
-          nombre,
-          apellido,
-          especialidad,
-          dni
-        ]
+      await pool.query(
+        'UPDATE medico SET nombre = COALESCE(?, nombre), apellido = COALESCE(?, apellido), especialidad = COALESCE(?, especialidad), activo = COALESCE(?, activo) WHERE dni = ?',
+        [nombre, apellido, especialidad, activo, dni]
       );
-
-      return res.json({
-        success: true,
-        message: 'Doctor actualizado',
-        affected: result.affectedRows
-      });
-
+      return res.json({ success: true, message: 'Doctor actualizado exitosamente' });
     }
 
-    // ADMISION
-
-    [rows] = await pool.query(
-      'SELECT * FROM personal_admision WHERE dni=?',
-      [dni]
-    );
-
+    // Verificar si es personal de admisión
+    [rows] = await pool.query('SELECT * FROM personal_admision WHERE dni = ?', [dni]);
     if (rows.length > 0) {
-
-      const [result] = await pool.query(
-        `UPDATE personal_admision
-         SET nombre=COALESCE(?,nombre),
-             apellido=COALESCE(?,apellido),
-             activo=COALESCE(?,activo)
-         WHERE dni=?`,
-        [
-          nombre,
-          apellido,
-          activo,
-          dni
-        ]
+      await pool.query(
+        'UPDATE personal_admision SET nombre = COALESCE(?, nombre), apellido = COALESCE(?, apellido), activo = COALESCE(?, activo) WHERE dni = ?',
+        [nombre, apellido, activo, dni]
       );
-
-      return res.json({
-        success: true,
-        message: 'Personal actualizado',
-        affected: result.affectedRows
-      });
-
+      return res.json({ success: true, message: 'Personal actualizado exitosamente' });
     }
 
-    res.status(404).json({
-      success: false,
-      error: 'Usuario no encontrado'
-    });
-
-  }
-  catch (err) {
-
-    console.error(err);
-
-    res.status(500).json({
-      success: false,
-      error: 'Error actualizar'
-    });
-
+    return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+  } catch (err) {
+    console.error('Error al actualizar usuario:', err);
+    res.status(500).json({ success: false, error: 'Error al actualizar usuario' });
   }
 });
 
+// 3. ELIMINAR (Desactivar) un usuario
+app.delete('/api/usuarios/:dni', async (req, res) => {
+  try {
+    const { dni } = req.params;
+
+    // Eliminación lógica (soft delete) para médicos
+    let [result] = await pool.query('UPDATE medico SET activo = 0 WHERE dni = ?', [dni]);
+    if (result.affectedRows > 0) {
+      return res.json({ success: true, message: 'Doctor desactivado exitosamente' });
+    }
+
+    // Eliminación lógica (soft delete) para personal de admisión
+    [result] = await pool.query('UPDATE personal_admision SET activo = 0 WHERE dni = ?', [dni]);
+    if (result.affectedRows > 0) {
+      return res.json({ success: true, message: 'Personal desactivado exitosamente' });
+    }
+
+    return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+  } catch (err) {
+    console.error('Error al eliminar usuario:', err);
+    res.status(500).json({ success: false, error: 'Error al eliminar usuario' });
+  }
+});
 
 // GET /api/users - Obtener todos los usuarios
+app.get('/api/users', async (req, res) => {
+  try {
+    const usuarios = [];
 
+    // Obtener médicos
+    const [medicos] = await pool.query('SELECT *, "Doctor" as rol FROM medico');
+    usuarios.push(...medicos);
+
+    // Obtener personal de admisión
+    const [admision] = await pool.query('SELECT *, "Admision" as rol FROM personal_admision');
+    usuarios.push(...admision);
+
+    // Obtener administradores
+    const [admin] = await pool.query('SELECT *, "Admin" as rol FROM administrador');
+    usuarios.push(...admin);
+
+    res.json(usuarios);
+  } catch (err) {
+    console.error('Error al obtener usuarios:', err);
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
 
 // PUT /api/users/:id - Actualizar usuario
 app.put('/api/users/:id', async (req, res) => {
@@ -822,7 +786,36 @@ app.put('/api/users/:id', async (req, res) => {
 });
 
 // DELETE /api/users/:id - Eliminar usuario
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rol } = req.body;
 
+    let tabla = '';
+    if (rol === 'Doctor') {
+      tabla = 'medico';
+    } else if (rol === 'Admision' || rol === 'Admisión') {
+      tabla = 'personal_admision';
+    } else if (rol === 'Admin') {
+      tabla = 'administrador';
+    }
+
+    if (!tabla) {
+      return res.status(400).json({ success: false, error: 'Rol inválido' });
+    }
+
+    const [result] = await pool.query(`DELETE FROM ${tabla} WHERE dni = ?`, [id]);
+
+    if (result.affectedRows > 0) {
+      res.json({ success: true, message: 'Usuario eliminado correctamente' });
+    } else {
+      res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+    }
+  } catch (err) {
+    console.error('Error al eliminar usuario:', err);
+    res.status(500).json({ success: false, error: 'Error al eliminar usuario' });
+  }
+});
 
 app.use((req, res) => {
   if (req.path.startsWith('/api/')) {
