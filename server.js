@@ -92,42 +92,8 @@ app.post('/api/triaje', async (req, res) => {
   }
 });
 
-app.get('/api/paciente/dni/:dni', async (req, res) => {
-  try {
-    const { dni } = req.params;
-
-    const sql = `
-      SELECT id_paciente, dni, nombre, apellido, fecha_nacimiento, sexo, created_at
-      FROM paciente
-      WHERE dni = ?
-    `;
-
-    const [results] = await pool.query(sql, [dni]);
-
-    if (results.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Paciente no encontrado'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: results[0]
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      error: 'Error al obtener información del paciente'
-    });
-  }
-});
-
 app.get('/api/signos', async (req, res) => {
-
   try {
-
     const [rows] = await pool.query(`
       SELECT *
       FROM signos_vitales
@@ -136,17 +102,12 @@ app.get('/api/signos', async (req, res) => {
     `);
 
     res.json(rows);
-
   } catch (err) {
-
     console.error(err);
-
     res.status(500).json({
       error: 'Error al obtener signos vitales'
     });
-
   }
-
 });
 
 app.post('/api/register', async (req, res) => {
@@ -162,7 +123,7 @@ app.post('/api/register', async (req, res) => {
 
     let tabla = '';
 
-    if (rol === 'Doctor') {
+    if (rol === 'Doctor' || rol === 'Médico') {
       tabla = 'medico';
     } else if (rol === 'Admision' || rol === 'Admisión') {
       tabla = 'personal_admision';
@@ -184,13 +145,13 @@ app.post('/api/register', async (req, res) => {
       });
     }
 
-    const saltRounds = 10; { }
+    const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
     const usuario = dni;
     let sql = '';
 
-    if (rol === 'Doctor') {
+    if (tabla === 'medico') {
       sql = `
         INSERT INTO medico
         (
@@ -254,7 +215,6 @@ app.post('/api/login', async (req, res) => {
     const { dni, password } = req.body;
 
     if (!password) {
-
       const [pacientes] = await pool.query(`SELECT * FROM paciente WHERE dni = ?`, [dni]);
       if (pacientes.length > 0) {
         return res.json({ success: true, rol: 'Paciente', usuario: pacientes[0] });
@@ -337,12 +297,15 @@ app.post('/api/login', async (req, res) => {
         usuario: usuarioEncontrado,
         token: token
       });
-
     } else {
       const nuevosIntentos = intentosActuales + 1;
-
-      await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = ? WHERE dni = ?`, [nuevosIntentos, dni]);
-
+      
+      if (nuevosIntentos >= 5) {
+        await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = ?, activo = 0 WHERE dni = ?`, [nuevosIntentos, dni]);
+      } else {
+        await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = ? WHERE dni = ?`, [nuevosIntentos, dni]);
+      }
+      
       const intentosRestantes = 5 - nuevosIntentos;
 
       return res.status(401).json({
@@ -350,13 +313,12 @@ app.post('/api/login', async (req, res) => {
         error: 'Credenciales incorrectas',
         details: intentosRestantes > 0
           ? `Te quedan ${intentosRestantes} intento(s) antes de bloquear la cuenta.`
-          : 'Tu cuenta ha sido bloqueada tras 5 intentos fallidos.'
+          : 'Tu cuenta ha sido bloqueada tras 5 intentos fallidos y ha sido desactivada en el sistema.'
       });
     }
-
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: 'Error del servidor' });
+    res.status(500).json({ success: false, error: 'Error interno en el login' });
   }
 });
 
@@ -425,9 +387,7 @@ app.get('/api/login', async (req, res) => {
 });
 
 app.post('/api/paciente', async (req, res) => {
-
   try {
-
     const {
       dni,
       nombre,
@@ -461,22 +421,16 @@ app.post('/api/paciente', async (req, res) => {
     });
 
   } catch (err) {
-
     console.error(err);
-
     res.status(500).json({
       success: false,
       error: 'Error registrando paciente'
     });
-
   }
-
 });
 
 app.get('/api/doctores', async (req, res) => {
-
   try {
-
     const [rows] = await pool.query(`
       SELECT
         id_medico,
@@ -488,114 +442,54 @@ app.get('/api/doctores', async (req, res) => {
     `);
 
     res.json(rows);
-
   } catch (err) {
-
     console.error(err);
-
     res.status(500).json({
       success: false,
       error: 'Error obteniendo doctores'
     });
-
   }
-
-});
-app.get('/api/paciente/:dni', async (req, res) => {
-
-  try {
-
-    const dni = req.params.dni;
-
-    const [rows] = await pool.query(
-      `
-      SELECT *
-      FROM paciente
-      WHERE dni = ?
-      `,
-      [dni]
-    );
-
-    if (rows.length === 0) {
-
-      return res.json({
-        success: false
-      });
-
-    }
-
-    res.json({
-      success: true,
-      paciente: rows[0]
-    });
-
-  } catch (err) {
-
-    console.error(err);
-
-    res.status(500).json({
-      success: false,
-      error: 'Error servidor'
-    });
-
-  }
-
 });
 
 app.get('/api/pacientes/dashboard', async (req, res) => {
   try {
-
     const sql = `
       SELECT
-
-p.id_paciente,
-p.dni,
-p.nombre,
-p.apellido,
-p.estado_atencion,
-
-sv.temperatura,
-sv.saturacion_oxigeno,
-sv.pulso,
-sv.triage,
-sv.descripcion,
-
-sv.created_at AS fecha_triaje
-
-FROM paciente p
-
-INNER JOIN signos_vitales sv
-ON sv.id_signos=(
-
-SELECT MAX(id_signos)
-
-FROM signos_vitales
-
-WHERE id_paciente=p.id_paciente
-
-)
-
-WHERE DATE(sv.created_at)=CURDATE()
-
-ORDER BY sv.created_at DESC
-`;
+        p.id_paciente,
+        p.dni,
+        p.nombre,
+        p.apellido,
+        sv.temperatura,
+        sv.saturacion_oxigeno,
+        sv.pulso,
+        sv.triage,
+        sv.descripcion,
+        sv.created_at AS fecha_triaje
+      FROM paciente p
+      LEFT JOIN signos_vitales sv ON sv.id_paciente = p.id_paciente
+        AND sv.id_signos = (
+          SELECT MAX(id_signos)
+          FROM signos_vitales
+          WHERE id_paciente = p.id_paciente
+        )
+      ORDER BY p.id_paciente DESC
+    `;
 
     const [resultados] = await pool.query(sql);
 
     const pacientesFormateados = resultados.map(pac => {
-
-      const pasoTriaje = pac.temperatura !== null;
-
+      const pasoTriaje = pac.temperatura !== null && pac.temperatura !== undefined && pac.temperatura !== '';
+      
       let estadoSalud = 'Pendiente';
 
       if (pasoTriaje) {
-        const pulso = parseInt(pac.pulso);
-        const oxigeno = parseInt(pac.saturacion_oxigeno);
-        const temp = parseFloat(pac.temperatura);
+        const oxigeno = parseFloat(pac.saturacion_oxigeno) || 0;
+        const pulso = parseInt(pac.pulso) || 0;
+        const temp = parseFloat(pac.temperatura) || 0;
 
-        if (oxigeno < 90 || pulso > 110 || temp > 38.5) {
+        if ((oxigeno > 0 && oxigeno < 90) || pulso > 110 || temp > 38.5 || pac.triage === 'Rojo') {
           estadoSalud = 'Crítico';
-        } else if (oxigeno < 95 || pulso > 100 || temp > 37.5) {
+        } else if ((oxigeno > 0 && oxigeno < 95) || pulso > 100 || temp > 37.5 || pac.triage === 'Amarillo') {
           estadoSalud = 'Requiere atención';
         } else {
           estadoSalud = 'Normal';
@@ -605,15 +499,14 @@ ORDER BY sv.created_at DESC
       return {
         id_paciente: pac.id_paciente,
         dni: pac.dni,
-        nombreCompleto: `${pac.nombre} ${pac.apellido}`,
-        pasoTriaje: pasoTriaje,
+        nombreCompleto: `${pac.nombre || ''} ${pac.apellido || ''}`.trim() || `Paciente (${pac.dni})`,
         estado: estadoSalud,
         signosVitales: pasoTriaje ? {
           temperatura: `${pac.temperatura}°C`,
           saturacion_oxigeno: `${pac.saturacion_oxigeno}%`,
           pulso: `${pac.pulso} bpm`,
-          nivelTriaje: pac.triage,
-          descripcion: pac.descripcion,
+          nivelTriaje: pac.triage || 'N/A',
+          descripcion: pac.descripcion || '',
           fecha: pac.fecha_triaje
         } : null
       };
@@ -625,137 +518,42 @@ ORDER BY sv.created_at DESC
     });
 
   } catch (err) {
-    console.error('Error al obtener pacientes del dashboard:', err);
-    res.status(500).json({ success: false, error: 'Error al obtener la lista de pacientes' });
+    console.error('❌ Error crítico en SQL Dashboard:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno al procesar los datos del dashboard',
+      details: err.message
+    });
   }
 });
 
-// === CRUD DE USUARIOS (Administrador) ===
-
-// 1. OBTENER todos los usuarios (Médicos y Personal de Admisión)
 app.get('/api/usuarios', async (req, res) => {
   try {
-    const [medicos] = await pool.query(`
-      SELECT id_medico as id, dni, nombre, apellido, especialidad, usuario, activo, 'Doctor' as rol, created_at 
-      FROM medico
-    `);
+    const [medicos] = await pool.query(`SELECT id_medico AS id, dni, nombre, apellido, especialidad, usuario, activo, 'Doctor' AS rol FROM medico`);
+    const [admision] = await pool.query(`SELECT id_personal AS id, dni, nombre, apellido, NULL AS especialidad, usuario, activo, 'Admision' AS rol FROM personal_admision`);
+    const [admin] = await pool.query(`SELECT id_administrador AS id, dni, nombre, apellido, NULL AS especialidad, usuario, activo, 'Admin' AS rol FROM administrador`);
 
-    const [admision] = await pool.query(`
-      SELECT id_personal as id, dni, nombre, apellido, NULL as especialidad, usuario, activo, 'Admision' as rol, created_at 
-      FROM personal_admision
-    `);
-
-    const usuarios = [...medicos, ...admision].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-    res.json({ success: true, data: usuarios });
-  } catch (err) {
-    console.error('Error al obtener usuarios:', err);
-    res.status(500).json({ success: false, error: 'Error al obtener usuarios' });
+    res.json({ success: true, data: [...medicos, ...admision, ...admin] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al obtener usuarios' });
   }
 });
 
-// 2. ACTUALIZAR un usuario
-app.put('/api/usuarios/:dni', async (req, res) => {
-  try {
-    const { dni } = req.params;
-    const { nombre, apellido, especialidad, activo } = req.body;
-
-    // Verificar si es médico
-    let [rows] = await pool.query('SELECT * FROM medico WHERE dni = ?', [dni]);
-    if (rows.length > 0) {
-      await pool.query(
-        'UPDATE medico SET nombre = COALESCE(?, nombre), apellido = COALESCE(?, apellido), especialidad = COALESCE(?, especialidad), activo = COALESCE(?, activo) WHERE dni = ?',
-        [nombre, apellido, especialidad, activo, dni]
-      );
-      return res.json({ success: true, message: 'Doctor actualizado exitosamente' });
-    }
-
-    // Verificar si es personal de admisión
-    [rows] = await pool.query('SELECT * FROM personal_admision WHERE dni = ?', [dni]);
-    if (rows.length > 0) {
-      await pool.query(
-        'UPDATE personal_admision SET nombre = COALESCE(?, nombre), apellido = COALESCE(?, apellido), activo = COALESCE(?, activo) WHERE dni = ?',
-        [nombre, apellido, activo, dni]
-      );
-      return res.json({ success: true, message: 'Personal actualizado exitosamente' });
-    }
-
-    return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
-  } catch (err) {
-    console.error('Error al actualizar usuario:', err);
-    res.status(500).json({ success: false, error: 'Error al actualizar usuario' });
-  }
-});
-
-// 3. ELIMINAR (Desactivar) un usuario
-app.delete('/api/usuarios/:dni', async (req, res) => {
-  try {
-    const { dni } = req.params;
-
-    // Eliminación lógica (soft delete) para médicos
-    let [result] = await pool.query('UPDATE medico SET activo = 0 WHERE dni = ?', [dni]);
-    if (result.affectedRows > 0) {
-      return res.json({ success: true, message: 'Doctor desactivado exitosamente' });
-    }
-
-    // Eliminación lógica (soft delete) para personal de admisión
-    [result] = await pool.query('UPDATE personal_admision SET activo = 0 WHERE dni = ?', [dni]);
-    if (result.affectedRows > 0) {
-      return res.json({ success: true, message: 'Personal desactivado exitosamente' });
-    }
-
-    return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
-  } catch (err) {
-    console.error('Error al eliminar usuario:', err);
-    res.status(500).json({ success: false, error: 'Error al eliminar usuario' });
-  }
-});
-
-// GET /api/users - Obtener todos los usuarios
-app.get('/api/users', async (req, res) => {
-  try {
-    const usuarios = [];
-
-    // Obtener médicos
-    const [medicos] = await pool.query('SELECT *, "Doctor" as rol FROM medico');
-    usuarios.push(...medicos);
-
-    // Obtener personal de admisión
-    const [admision] = await pool.query('SELECT *, "Admision" as rol FROM personal_admision');
-    usuarios.push(...admision);
-
-    // Obtener administradores
-    const [admin] = await pool.query('SELECT *, "Admin" as rol FROM administrador');
-    usuarios.push(...admin);
-
-    res.json(usuarios);
-  } catch (err) {
-    console.error('Error al obtener usuarios:', err);
-    res.status(500).json({ error: 'Error al obtener usuarios' });
-  }
-});
-
-// PUT /api/users/:id - Actualizar usuario
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/usuarios/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { nombre, apellido, dni, password, especialidad, rol } = req.body;
 
     let tabla = '';
-    if (rol === 'Doctor') {
-      tabla = 'medico';
-    } else if (rol === 'Admision' || rol === 'Admisión') {
-      tabla = 'personal_admision';
-    } else if (rol === 'Admin') {
-      tabla = 'administrador';
-    }
+    if (rol === 'Doctor') tabla = 'medico';
+    else if (rol === 'Admision' || rol === 'Admisión') tabla = 'personal_admision';
+    else if (rol === 'Admin') tabla = 'administrador';
 
-    if (!tabla) {
-      return res.status(400).json({ success: false, error: 'Rol inválido' });
-    }
+    if (!tabla) return res.status(400).json({ success: false, error: 'Rol inválido' });
 
-    let sql = `UPDATE ${tabla} SET nombre = ?, apellido = ?`;
-    let params = [nombre, apellido];
+    let sql = `UPDATE ${tabla} SET nombre = ?, apellido = ?, dni = ?, usuario = ?`;
+    let params = [nombre, apellido, dni, dni];
 
     if (password) {
       const saltRounds = 10;
@@ -780,39 +578,73 @@ app.put('/api/users/:id', async (req, res) => {
       res.status(404).json({ success: false, error: 'Usuario no encontrado' });
     }
   } catch (err) {
-    console.error('Error al actualizar usuario:', err);
+    console.error(err);
     res.status(500).json({ success: false, error: 'Error al actualizar usuario' });
   }
 });
 
-// DELETE /api/users/:id - Eliminar usuario
-app.delete('/api/users/:id', async (req, res) => {
+app.put('/api/usuarios/:dni/estado', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { rol } = req.body;
+    const { dni } = req.params;
+    const { activo } = req.body;
 
-    let tabla = '';
-    if (rol === 'Doctor') {
-      tabla = 'medico';
-    } else if (rol === 'Admision' || rol === 'Admisión') {
-      tabla = 'personal_admision';
-    } else if (rol === 'Admin') {
-      tabla = 'administrador';
+    const nuevoEstado = activo ? 1 : 0;
+
+    const sqlMedico = nuevoEstado === 1
+      ? 'UPDATE medico SET activo=?, intentos_login=0 WHERE dni=?'
+      : 'UPDATE medico SET activo=? WHERE dni=?';
+
+    const sqlAdmision = nuevoEstado === 1
+      ? 'UPDATE personal_admision SET activo=?, intentos_login=0 WHERE dni=?'
+      : 'UPDATE personal_admision SET activo=? WHERE dni=?';
+
+    const sqlAdmin = nuevoEstado === 1
+      ? 'UPDATE administrador SET activo=?, intentos_login=0 WHERE dni=?'
+      : 'UPDATE administrador SET activo=? WHERE dni=?';
+
+    const params = [nuevoEstado, dni];
+
+    let [rows] = await pool.query('SELECT * FROM medico WHERE dni=?', [dni]);
+    if (rows.length > 0) {
+      await pool.query(sqlMedico, params);
+      return res.json({ success: true, message: 'Doctor activado e intentos de login reiniciados.' });
     }
 
-    if (!tabla) {
-      return res.status(400).json({ success: false, error: 'Rol inválido' });
+    [rows] = await pool.query('SELECT * FROM personal_admision WHERE dni=?', [dni]);
+    if (rows.length > 0) {
+      await pool.query(sqlAdmision, params);
+      return res.json({ success: true, message: 'Personal de admisión activado e intentos de login reiniciados.' });
     }
 
-    const [result] = await pool.query(`DELETE FROM ${tabla} WHERE dni = ?`, [id]);
-
-    if (result.affectedRows > 0) {
-      res.json({ success: true, message: 'Usuario eliminado correctamente' });
-    } else {
-      res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+    [rows] = await pool.query('SELECT * FROM administrador WHERE dni=?', [dni]);
+    if (rows.length > 0) {
+      await pool.query(sqlAdmin, params);
+      return res.json({ success: true, message: 'Administrador activado e intentos de login reiniciados.' });
     }
+
+    res.status(404).json({ success: false, error: 'Usuario no encontrado' });
   } catch (err) {
-    console.error('Error al eliminar usuario:', err);
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Error al cambiar estado y desbloquear' });
+  }
+});
+
+app.delete('/api/usuarios/:dni', async (req, res) => {
+  try {
+    const { dni } = req.params;
+
+    const [med] = await pool.query('DELETE FROM medico WHERE dni = ?', [dni]);
+    if (med.affectedRows > 0) return res.json({ success: true, message: 'Médico eliminado' });
+
+    const [adm] = await pool.query('DELETE FROM personal_admision WHERE dni = ?', [dni]);
+    if (adm.affectedRows > 0) return res.json({ success: true, message: 'Personal de admisión eliminado' });
+
+    const [admn] = await pool.query('DELETE FROM administrador WHERE dni = ?', [dni]);
+    if (admn.affectedRows > 0) return res.json({ success: true, message: 'Administrador eliminado' });
+
+    res.status(404).json({ success: false, error: 'Usuario no encontrado para eliminar' });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ success: false, error: 'Error al eliminar usuario' });
   }
 });
@@ -824,6 +656,8 @@ app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'triaje', 'build', 'index.html'));
 });
 
-app.listen(4000, () => {
-  console.log('Servidor corriendo en Railway');
+const PORT = process.env.PORT || 4000;
+
+app.listen(PORT, () => {
+  console.log(`Servidor VitalScan ejecutándose exitosamente en el puerto ${PORT}`);
 });
