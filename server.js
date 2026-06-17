@@ -12,7 +12,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'triaje', 'build')));
 
 // ==========================================
-// RUTAS BASE Y TRIAJE
+// RUTAS BASE & TRIAJE
 // ==========================================
 
 app.get('/', (req, res) => {
@@ -112,7 +112,7 @@ app.get('/api/signos', async (req, res) => {
 });
 
 // ==========================================
-// AUTENTICACIÓN (REGISTRO Y LOGIN POST)
+// AUTENTICACIÓN & USUARIOS
 // ==========================================
 
 app.post('/api/register', async (req, res) => {
@@ -175,18 +175,16 @@ app.post('/api/login', async (req, res) => {
       if (pacientes.length > 0) {
         return res.json({ success: true, rol: 'Paciente', usuario: pacientes[0] });
       }
+
       const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
-      if (medicos.length > 0) {
-        return res.json({ success: true, rol: 'Doctor' });
-      }
+      if (medicos.length > 0) { return res.json({ success: true, rol: 'Doctor' }); }
+
       const [admision] = await pool.query(`SELECT * FROM personal_admision WHERE dni = ?`, [dni]);
-      if (admision.length > 0) {
-        return res.json({ success: true, rol: 'Admision' });
-      }
+      if (admision.length > 0) { return res.json({ success: true, rol: 'Admision' }); }
+
       const [admin] = await pool.query(`SELECT * FROM administrador WHERE dni = ?`, [dni]);
-      if (admin.length > 0) {
-        return res.json({ success: true, rol: 'Admin' });
-      }
+      if (admin.length > 0) { return res.json({ success: true, rol: 'Admin' }); }
+
       return res.status(404).json({ success: false, error: 'DNI no registrado' });
     }
 
@@ -247,6 +245,7 @@ app.post('/api/login', async (req, res) => {
       });
     } else {
       const nuevosIntentos = intentosActuales + 1;
+      
       if (nuevosIntentos >= 5) {
         await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = ?, activo = 0 WHERE dni = ?`, [nuevosIntentos, dni]);
       } else {
@@ -254,6 +253,7 @@ app.post('/api/login', async (req, res) => {
       }
       
       const intentosRestantes = 5 - nuevosIntentos;
+
       return res.status(401).json({
         success: false,
         error: 'Credenciales incorrectas',
@@ -268,11 +268,48 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Endpoint GET de login (Compatibilidad / Legacy)
+app.get('/api/login', async (req, res) => {
+  try {
+    const { dni, password } = req.query;
+
+    if (!dni || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Faltan parámetros: dni y password son requeridos'
+      });
+    }
+
+    const [admin] = await pool.query(
+      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
+      [dni, password]
+    );
+    if (admin.length > 0) { return res.json({ success: true, rol: 'Admin', usuario: admin[0] }); }
+
+    const [admision] = await pool.query(
+      `SELECT * FROM personal_admision WHERE dni = ? AND clave_hash = ?`,
+      [dni, password]
+    );
+    if (admision.length > 0) { return res.json({ success: true, rol: 'Admision', usuario: admision[0] }); }
+
+    const [medicos] = await pool.query(
+      `SELECT * FROM medico WHERE dni = ? AND clave_hash = ?`, 
+      [dni, password]
+    );
+    if (medicos.length > 0) { return res.json({ success: true, rol: 'Doctor', usuario: medicos[0] }); }
+
+    return res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Error en el servidor' });
+  }
+});
+
 // ==========================================
-// GESTIÓN DE PACIENTES (NUEVOS CON FILTROS)
+// GESTIÓN DE PACIENTES & DOCTORES
 // ==========================================
 
-// Registrar paciente guardando el id_medico asignado
+// NUEVA VERSIÓN: Guarda id_medico correctamente
 app.post('/api/paciente', async (req, res) => {
   try {
     const { dni, nombre, apellido, fechaNacimiento, id_medico } = req.body;
@@ -301,7 +338,21 @@ app.post('/api/paciente', async (req, res) => {
   }
 });
 
-// Endpoint del Dashboard con filtros funcionales de Médico, Fecha y Turno
+app.get('/api/doctores', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT id_medico, nombre, apellido, especialidad 
+      FROM medico 
+      WHERE activo = 1
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Error obteniendo doctores' });
+  }
+});
+
+// NUEVA VERSIÓN: Dashboard con filtros por médico, fecha y turno
 app.get('/api/pacientes/dashboard', async (req, res) => {
   try {
     const { id_medico, fecha, turno } = req.query;
@@ -416,21 +467,8 @@ app.get('/api/paciente/dni/:dni', async (req, res) => {
 });
 
 // ==========================================
-// MANTENIMIENTO DE USUARIOS (MÉDICOS/ADM/ADMIN)
+// ADMINISTRACIÓN DE USUARIOS (CRUD)
 // ==========================================
-
-app.get('/api/doctores', async (req, res) => {
-  try {
-    const [rows] = await pool.query(`
-      SELECT id_medico, nombre, apellido, especialidad 
-      FROM medico WHERE activo = 1
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: 'Error obteniendo doctores' });
-  }
-});
 
 app.get('/api/usuarios', async (req, res) => {
   try {
@@ -497,7 +535,6 @@ app.put('/api/usuarios/:dni/estado', async (req, res) => {
     const sqlMedico = nuevoEstado === 1 ? 'UPDATE medico SET activo=?, intentos_login=0 WHERE dni=?' : 'UPDATE medico SET activo=? WHERE dni=?';
     const sqlAdmision = nuevoEstado === 1 ? 'UPDATE personal_admision SET activo=?, intentos_login=0 WHERE dni=?' : 'UPDATE personal_admision SET activo=? WHERE dni=?';
     const sqlAdmin = nuevoEstado === 1 ? 'UPDATE administrador SET activo=?, intentos_login=0 WHERE dni=?' : 'UPDATE administrador SET activo=? WHERE dni=?';
-
     const params = [nuevoEstado, dni];
 
     let [rows] = await pool.query('SELECT * FROM medico WHERE dni=?', [dni]);
@@ -546,16 +583,19 @@ app.delete('/api/usuarios/:dni', async (req, res) => {
 });
 
 // ==========================================
-// MIDDLEWARE COMODÍN Y LEVANTAMIENTO DE PUERTO
+// MIDDLEWARE COMODÍN (MANEJO DE 404 Y FRONTEND)
 // ==========================================
 
-// SIEMPRE DEBE IR ABAJO DE TODAS LAS RUTAS DE LA API
 app.use((req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'Ruta API no encontrada' });
   }
   res.sendFile(path.join(__dirname, 'triaje', 'build', 'index.html'));
 });
+
+// ==========================================
+// INICIALIZACIÓN DEL SERVIDOR
+// ==========================================
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
