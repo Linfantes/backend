@@ -649,14 +649,8 @@ app.delete('/api/usuarios/:dni', async (req, res) => {
   }
 });
 
-app.use((req, res) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'Ruta API no encontrada' });
-  }
-  res.sendFile(path.join(__dirname, 'triaje', 'build', 'index.html'));
-});
-
-const PORT = process.env.PORT || 4000;
+// IMPORTANTE: esta ruta estaba antes definida DESPUÉS del catch-all,
+// por lo que nunca se ejecutaba. Ahora va antes, junto con las demás rutas.
 app.get('/api/paciente/dni/:dni', async (req, res) => {
   try {
     const { dni } = req.params;
@@ -687,6 +681,16 @@ app.get('/api/paciente/dni/:dni', async (req, res) => {
     });
   }
 });
+
+// El catch-all SIEMPRE debe ir al final, después de TODAS las rutas reales.
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Ruta API no encontrada' });
+  }
+  res.sendFile(path.join(__dirname, 'triaje', 'build', 'index.html'));
+});
+
+const PORT = process.env.PORT || 4000;
 
 app.listen(PORT, () => {
   console.log(`Servidor VitalScan ejecutándose exitosamente en el puerto ${PORT}`);
