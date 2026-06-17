@@ -657,6 +657,36 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 4000;
+app.get('/api/paciente/dni/:dni', async (req, res) => {
+  try {
+    const { dni } = req.params;
+
+    const [pacientes] = await pool.query(
+      'SELECT * FROM paciente WHERE dni = ?',
+      [dni]
+    );
+
+    if (pacientes.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Paciente no encontrado'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: pacientes[0]
+    });
+
+  } catch (error) {
+    console.error('Error buscando paciente:', error);
+
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Servidor VitalScan ejecutándose exitosamente en el puerto ${PORT}`);
