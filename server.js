@@ -171,25 +171,35 @@ app.post('/api/login', async (req, res) => {
     const { dni, password } = req.body;
 
     // =================================================================
-    // LOGIN SIN CONTRASEÑA (EXCLUSIVO PARA PACIENTES)
+    // LOGIN SIN CONTRASEÑA (REVISIÓN DE ROLES E INTERFAZ DINÁMICA)
     // =================================================================
     if (!password) {
+      // 1. Si es Paciente, entra directo sin contraseña
       const [pacientes] = await pool.query(`SELECT * FROM paciente WHERE dni = ?`, [dni]);
       if (pacientes.length > 0) {
         return res.json({ success: true, rol: 'Paciente', usuario: pacientes[0] });
       }
 
-      // Evitamos caídas controlando los flujos de otros roles si entran sin clave
+      // 2. Si es Médico, le avisamos al Frontend que pida la contraseña
       const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
-      if (medicos.length > 0) { return res.status(401).json({ success: false, error: 'Médicos requieren contraseña' }); }
+      if (medicos.length > 0) { 
+        return res.json({ success: true, rol: 'Doctor', requierePassword: true }); 
+      }
 
+      // 3. Si es Personal de Admisión, le avisamos al Frontend
       const [admision] = await pool.query(`SELECT * FROM personal_admision WHERE dni = ?`, [dni]);
-      if (admision.length > 0) { return res.status(401).json({ success: false, error: 'Personal requiere contraseña' }); }
+      if (admision.length > 0) { 
+        return res.json({ success: true, rol: 'Admision', requierePassword: true }); 
+      }
 
+      // 4. Si es Administrador, le avisamos al Frontend
       const [admin] = await pool.query(`SELECT * FROM administrador WHERE dni = ?`, [dni]);
-      if (admin.length > 0) { return res.status(401).json({ success: false, error: 'Administradores requieren contraseña' }); }
+      if (admin.length > 0) { 
+        return res.json({ success: true, rol: 'Admin', requierePassword: true }); 
+      }
 
-      return res.status(404).json({ success: false, error: 'DNI no registrado' });
+      // Si no existe en absolutamente ninguna tabla de la Base de Datos
+      return res.status(404).json({ success: false, error: 'DNI no registrado en el sistema' });
     }
 
     // =================================================================
@@ -360,10 +370,10 @@ app.post('/api/paciente', async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500({
+    res.status(500).json({
       success: false,
       error: 'Error registrando paciente'
-    }));
+    });
   }
 });
 
