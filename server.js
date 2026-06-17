@@ -11,6 +11,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'triaje', 'build')));
 
+// ==========================================
+// RUTAS BASE Y TRIAJE
+// ==========================================
+
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -100,27 +104,20 @@ app.get('/api/signos', async (req, res) => {
       ORDER BY created_at DESC
       LIMIT 10
     `);
-
     res.json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      error: 'Error al obtener signos vitales'
-    });
+    res.status(500).json({ error: 'Error al obtener signos vitales' });
   }
 });
 
+// ==========================================
+// AUTENTICACIÓN (REGISTRO Y LOGIN POST)
+// ==========================================
+
 app.post('/api/register', async (req, res) => {
   try {
-    const {
-      nombre,
-      apellido,
-      dni,
-      password,
-      rol,
-      especialidad
-    } = req.body;
-
+    const { nombre, apellido, dni, password, rol, especialidad } = req.body;
     let tabla = '';
 
     if (rol === 'Doctor' || rol === 'Médico') {
@@ -130,9 +127,7 @@ app.post('/api/register', async (req, res) => {
     } else if (rol === 'Admin') {
       tabla = 'administrador';
     } else {
-      return res.status(400).json({
-        error: 'Rol inválido'
-      });
+      return res.status(400).json({ error: 'Rol inválido' });
     }
 
     const checkSql = `SELECT dni FROM ${tabla} WHERE dni = ?`;
@@ -147,66 +142,27 @@ app.post('/api/register', async (req, res) => {
 
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
-
     const usuario = dni;
     let sql = '';
 
     if (tabla === 'medico') {
       sql = `
-        INSERT INTO medico
-        (
-          dni,
-          nombre,
-          apellido,
-          especialidad,
-          usuario,
-          clave_hash
-        )
+        INSERT INTO medico (dni, nombre, apellido, especialidad, usuario, clave_hash)
         VALUES (?, ?, ?, ?, ?, ?)
       `;
-
-      await pool.query(sql, [
-        dni,
-        nombre,
-        apellido,
-        especialidad,
-        usuario,
-        passwordHash
-      ]);
-
+      await pool.query(sql, [dni, nombre, apellido, especialidad, usuario, passwordHash]);
     } else {
       sql = `
-        INSERT INTO ${tabla}
-        (
-          dni,
-          nombre,
-          apellido,
-          usuario,
-          clave_hash
-        )
+        INSERT INTO ${tabla} (dni, nombre, apellido, usuario, clave_hash)
         VALUES (?, ?, ?, ?, ?)
       `;
-
-      await pool.query(sql, [
-        dni,
-        nombre,
-        apellido,
-        usuario,
-        passwordHash
-      ]);
+      await pool.query(sql, [dni, nombre, apellido, usuario, passwordHash]);
     }
 
-    res.json({
-      success: true,
-      message: 'Usuario registrado correctamente'
-    });
-
+    res.json({ success: true, message: 'Usuario registrado correctamente' });
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      success: false,
-      error: 'Error al registrar usuario'
-    });
+    res.status(500).json({ success: false, error: 'Error al registrar usuario' });
   }
 });
 
@@ -219,22 +175,18 @@ app.post('/api/login', async (req, res) => {
       if (pacientes.length > 0) {
         return res.json({ success: true, rol: 'Paciente', usuario: pacientes[0] });
       }
-
       const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
       if (medicos.length > 0) {
         return res.json({ success: true, rol: 'Doctor' });
       }
-
       const [admision] = await pool.query(`SELECT * FROM personal_admision WHERE dni = ?`, [dni]);
       if (admision.length > 0) {
         return res.json({ success: true, rol: 'Admision' });
       }
-
       const [admin] = await pool.query(`SELECT * FROM administrador WHERE dni = ?`, [dni]);
       if (admin.length > 0) {
         return res.json({ success: true, rol: 'Admin' });
       }
-
       return res.status(404).json({ success: false, error: 'DNI no registrado' });
     }
 
@@ -281,13 +233,9 @@ app.post('/api/login', async (req, res) => {
 
     if (match) {
       await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = 0 WHERE dni = ?`, [dni]);
-
       delete usuarioEncontrado.clave_hash;
 
-      const payload = {
-        dni: usuarioEncontrado.dni,
-        rol: rolAsignado
-      };
+      const payload = { dni: usuarioEncontrado.dni, rol: rolAsignado };
       const secretKey = 'v1t4l$c4N2026$$';
       const token = jwt.sign(payload, secretKey, { expiresIn: '12h' });
 
@@ -299,7 +247,6 @@ app.post('/api/login', async (req, res) => {
       });
     } else {
       const nuevosIntentos = intentosActuales + 1;
-      
       if (nuevosIntentos >= 5) {
         await pool.query(`UPDATE ${tablaAsignada} SET intentos_login = ?, activo = 0 WHERE dni = ?`, [nuevosIntentos, dni]);
       } else {
@@ -307,7 +254,6 @@ app.post('/api/login', async (req, res) => {
       }
       
       const intentosRestantes = 5 - nuevosIntentos;
-
       return res.status(401).json({
         success: false,
         error: 'Credenciales incorrectas',
@@ -322,89 +268,18 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-app.get('/api/login', async (req, res) => {
-  try {
-    const { dni, password } = req.query;
+// ==========================================
+// GESTIÓN DE PACIENTES (NUEVOS CON FILTROS)
+// ==========================================
 
-    if (!dni || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Faltan parámetros: dni y password son requeridos'
-      });
-    }
-
-    const [medicos] = await pool.query(
-      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
-      [dni, password]
-    );
-
-    if (medicos.length > 0) {
-      return res.json({
-        success: true,
-        rol: 'Doctor',
-        usuario: medicos[0]
-      });
-    }
-
-    const [admision] = await pool.query(
-      `SELECT * FROM personal_admision WHERE dni = ? AND clave_hash = ?`,
-      [dni, password]
-    );
-
-    if (admision.length > 0) {
-      return res.json({
-        success: true,
-        rol: 'Admision',
-        usuario: admision[0]
-      });
-    }
-
-    const [admin] = await pool.query(
-      `SELECT * FROM administrador WHERE dni = ? AND clave_hash = ?`,
-      [dni, password]
-    );
-
-    if (admin.length > 0) {
-      return res.json({
-        success: true,
-        rol: 'Admin',
-        usuario: admin[0]
-      });
-    }
-
-    return res.status(401).json({
-      success: false,
-      error: 'Credenciales incorrectas'
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      error: 'Error en el servidor'
-    });
-  }
-});
-
+// Registrar paciente guardando el id_medico asignado
 app.post('/api/paciente', async (req, res) => {
   try {
-    const {
-      dni,
-      nombre,
-      apellido,
-      fechaNacimiento
-    } = req.body;
+    const { dni, nombre, apellido, fechaNacimiento, id_medico } = req.body;
 
     const sql = `
-      INSERT INTO paciente
-      (
-        dni,
-        nombre,
-        apellido,
-        fecha_nacimiento,
-        sexo
-      )
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO paciente (dni, nombre, apellido, fecha_nacimiento, sexo, id_medico) 
+      VALUES (?, ?, ?, ?, ?, ?)
     `;
 
     await pool.query(sql, [
@@ -412,48 +287,26 @@ app.post('/api/paciente', async (req, res) => {
       nombre,
       apellido,
       fechaNacimiento,
-      'M'
+      'M', 
+      id_medico || null 
     ]);
 
     res.json({
       success: true,
-      message: 'Paciente registrado'
+      message: 'Paciente registrado correctamente con médico asignado'
     });
-
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      success: false,
-      error: 'Error registrando paciente'
-    });
+    res.status(500).json({ success: false, error: 'Error registrando paciente' });
   }
 });
 
-app.get('/api/doctores', async (req, res) => {
-  try {
-    const [rows] = await pool.query(`
-      SELECT
-        id_medico,
-        nombre,
-        apellido,
-        especialidad
-      FROM medico
-      WHERE activo = 1
-    `);
-
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      error: 'Error obteniendo doctores'
-    });
-  }
-});
-
+// Endpoint del Dashboard con filtros funcionales de Médico, Fecha y Turno
 app.get('/api/pacientes/dashboard', async (req, res) => {
   try {
-    const sql = `
+    const { id_medico, fecha, turno } = req.query;
+
+    let sql = `
       SELECT
         p.id_paciente,
         p.dni,
@@ -464,6 +317,7 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
         sv.pulso,
         sv.triage,
         sv.descripcion,
+        p.created_at AS fecha_registro,
         sv.created_at AS fecha_triaje
       FROM paciente p
       LEFT JOIN signos_vitales sv ON sv.id_paciente = p.id_paciente
@@ -472,14 +326,37 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
           FROM signos_vitales
           WHERE id_paciente = p.id_paciente
         )
-      ORDER BY p.id_paciente DESC
+      WHERE 1=1
     `;
+    
+    const params = [];
 
-    const [resultados] = await pool.query(sql);
+    if (id_medico) {
+      sql += ` AND p.id_medico = ?`;
+      params.push(id_medico);
+    }
+
+    if (fecha) {
+      sql += ` AND DATE(p.created_at) = ?`;
+      params.push(fecha);
+    }
+
+    if (turno) {
+      if (turno === 'Mañana') {
+        sql += ` AND HOUR(p.created_at) >= 6 AND HOUR(p.created_at) < 14`; 
+      } else if (turno === 'Tarde') {
+        sql += ` AND HOUR(p.created_at) >= 14 AND HOUR(p.created_at) < 22`; 
+      } else if (turno === 'Noche') {
+        sql += ` AND (HOUR(p.created_at) >= 22 OR HOUR(p.created_at) < 6)`; 
+      }
+    }
+
+    sql += ` ORDER BY p.id_paciente DESC`;
+
+    const [resultados] = await pool.query(sql, params);
 
     const pacientesFormateados = resultados.map(pac => {
       const pasoTriaje = pac.temperatura !== null && pac.temperatura !== undefined && pac.temperatura !== '';
-      
       let estadoSalud = 'Pendiente';
 
       if (pasoTriaje) {
@@ -512,11 +389,7 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
       };
     });
 
-    res.json({
-      success: true,
-      data: pacientesFormateados
-    });
-
+    res.json({ success: true, data: pacientesFormateados });
   } catch (err) {
     console.error('❌ Error crítico en SQL Dashboard:', err);
     res.status(500).json({
@@ -524,6 +397,38 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
       error: 'Error interno al procesar los datos del dashboard',
       details: err.message
     });
+  }
+});
+
+app.get('/api/paciente/dni/:dni', async (req, res) => {
+  try {
+    const { dni } = req.params;
+    const [pacientes] = await pool.query('SELECT * FROM paciente WHERE dni = ?', [dni]);
+
+    if (pacientes.length === 0) {
+      return res.status(404).json({ success: false, error: 'Paciente no encontrado' });
+    }
+    res.json({ success: true, data: pacientes[0] });
+  } catch (error) {
+    console.error('Error buscando paciente:', error);
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
+  }
+});
+
+// ==========================================
+// MANTENIMIENTO DE USUARIOS (MÉDICOS/ADM/ADMIN)
+// ==========================================
+
+app.get('/api/doctores', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT id_medico, nombre, apellido, especialidad 
+      FROM medico WHERE activo = 1
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Error obteniendo doctores' });
   }
 });
 
@@ -587,20 +492,11 @@ app.put('/api/usuarios/:dni/estado', async (req, res) => {
   try {
     const { dni } = req.params;
     const { activo } = req.body;
-
     const nuevoEstado = activo ? 1 : 0;
 
-    const sqlMedico = nuevoEstado === 1
-      ? 'UPDATE medico SET activo=?, intentos_login=0 WHERE dni=?'
-      : 'UPDATE medico SET activo=? WHERE dni=?';
-
-    const sqlAdmision = nuevoEstado === 1
-      ? 'UPDATE personal_admision SET activo=?, intentos_login=0 WHERE dni=?'
-      : 'UPDATE personal_admision SET activo=? WHERE dni=?';
-
-    const sqlAdmin = nuevoEstado === 1
-      ? 'UPDATE administrador SET activo=?, intentos_login=0 WHERE dni=?'
-      : 'UPDATE administrador SET activo=? WHERE dni=?';
+    const sqlMedico = nuevoEstado === 1 ? 'UPDATE medico SET activo=?, intentos_login=0 WHERE dni=?' : 'UPDATE medico SET activo=? WHERE dni=?';
+    const sqlAdmision = nuevoEstado === 1 ? 'UPDATE personal_admision SET activo=?, intentos_login=0 WHERE dni=?' : 'UPDATE personal_admision SET activo=? WHERE dni=?';
+    const sqlAdmin = nuevoEstado === 1 ? 'UPDATE administrador SET activo=?, intentos_login=0 WHERE dni=?' : 'UPDATE administrador SET activo=? WHERE dni=?';
 
     const params = [nuevoEstado, dni];
 
@@ -649,37 +545,11 @@ app.delete('/api/usuarios/:dni', async (req, res) => {
   }
 });
 
-app.get('/api/paciente/dni/:dni', async (req, res) => {
-  try {
-    const { dni } = req.params;
+// ==========================================
+// MIDDLEWARE COMODÍN Y LEVANTAMIENTO DE PUERTO
+// ==========================================
 
-    const [pacientes] = await pool.query(
-      'SELECT * FROM paciente WHERE dni = ?',
-      [dni]
-    );
-
-    if (pacientes.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Paciente no encontrado'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: pacientes[0]
-    });
-
-  } catch (error) {
-    console.error('Error buscando paciente:', error);
-
-    res.status(500).json({
-      success: false,
-      error: 'Error interno del servidor'
-    });
-  }
-});
-
+// SIEMPRE DEBE IR ABAJO DE TODAS LAS RUTAS DE LA API
 app.use((req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'Ruta API no encontrada' });
@@ -688,160 +558,6 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 4000;
-// 1. Modificar el registro de paciente para capturar el id_medico asignado
-app.post('/api/paciente', async (req, res) => {
-  try {
-    const {
-      dni,
-      nombre,
-      apellido,
-      fechaNacimiento,
-      id_medico // Asegúrate de enviar este campo desde el formulario de Admisión
-    } = req.body;
-
-    const sql = `
-      INSERT INTO paciente 
-      (
-        dni, 
-        nombre, 
-        apellido, 
-        fecha_nacimiento, 
-        sexo,
-        id_medico
-      ) 
-      VALUES (?, ?, ?, ?, ?, ?)
-    `;
-
-    await pool.query(sql, [
-      dni,
-      nombre,
-      apellido,
-      fechaNacimiento,
-      'M', // Valor por defecto o dinámico según tu UI
-      id_medico || null // Permite registrar sin médico si es necesario, o forzarlo
-    ]);
-
-    res.json({
-      success: true,
-      message: 'Paciente registrado correctamente con médico asignado'
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      error: 'Error registrando paciente'
-    });
-  }
-});
-
-// 2. Modificar el endpoint del Dashboard para aplicar filtros de médico, fecha y turno
-app.get('/api/pacientes/dashboard', async (req, res) => {
-  try {
-    // Recibimos los nuevos parámetros por la URL
-    const { id_medico, fecha, turno } = req.query;
-
-    let sql = `
-      SELECT
-        p.id_paciente,
-        p.dni,
-        p.nombre,
-        p.apellido,
-        sv.temperatura,
-        sv.saturacion_oxigeno,
-        sv.pulso,
-        sv.triage,
-        sv.descripcion,
-        p.created_at AS fecha_registro,
-        sv.created_at AS fecha_triaje
-      FROM paciente p
-      LEFT JOIN signos_vitales sv ON sv.id_paciente = p.id_paciente
-        AND sv.id_signos = (
-          SELECT MAX(id_signos)
-          FROM signos_vitales
-          WHERE id_paciente = p.id_paciente
-        )
-      WHERE 1=1
-    `;
-    
-    const params = [];
-
-    // Filtro estricto: Si viene id_medico, solo muestra sus pacientes asignados
-    if (id_medico) {
-      sql += ` AND p.id_medico = ?`;
-      params.push(id_medico);
-    }
-
-    // Filtro por fecha del calendario (YYYY-MM-DD)
-    if (fecha) {
-      sql += ` AND DATE(p.created_at) = ?`;
-      params.push(fecha);
-    }
-
-    // Filtro por Rangos de Horas para los Turnos (Configurables)
-    if (turno) {
-      if (turno === 'Mañana') {
-        sql += ` AND HOUR(p.created_at) >= 6 AND HOUR(p.created_at) < 14`; // 06:00 AM a 01:59 PM
-      } else if (turno === 'Tarde') {
-        sql += ` AND HOUR(p.created_at) >= 14 AND HOUR(p.created_at) < 22`; // 02:00 PM a 09:59 PM
-      } else if (turno === 'Noche') {
-        sql += ` AND (HOUR(p.created_at) >= 22 OR HOUR(p.created_at) < 6)`; // 10:00 PM a 05:59 AM
-      }
-    }
-
-    sql += ` ORDER BY p.id_paciente DESC`;
-
-    const [resultados] = await pool.query(sql, params);
-
-    const pacientesFormateados = resultados.map(pac => {
-      const pasoTriaje = pac.temperatura !== null && pac.temperatura !== undefined && pac.temperatura !== '';
-      let estadoSalud = 'Pendiente';
-
-      if (pasoTriaje) {
-        const oxigeno = parseFloat(pac.saturacion_oxigeno) || 0;
-        const pulso = parseInt(pac.pulso) || 0;
-        const temp = parseFloat(pac.temperatura) || 0;
-
-        if ((oxigeno > 0 && oxigeno < 90) || pulso > 110 || temp > 38.5 || pac.triage === 'Rojo') {
-          estadoSalud = 'Crítico';
-        } else if ((oxigeno > 0 && oxigeno < 95) || pulso > 100 || temp > 37.5 || pac.triage === 'Amarillo') {
-          estadoSalud = 'Requiere atención';
-        } else {
-          estadoSalud = 'Normal';
-        }
-      }
-
-      return {
-        id_paciente: pac.id_paciente,
-        dni: pac.dni,
-        nombreCompleto: `${pac.nombre || ''} ${pac.apellido || ''}`.trim() || `Paciente (${pac.dni})`,
-        estado: estadoSalud,
-        signosVitales: pasoTriaje ? {
-          temperatura: `${pac.temperatura}°C`,
-          saturacion_oxigeno: `${pac.saturacion_oxigeno}%`,
-          pulso: `${pac.pulso} bpm`,
-          nivelTriaje: pac.triage || 'N/A',
-          descripcion: pac.descripcion || '',
-          fecha: pac.fecha_triaje
-        } : null
-      };
-    });
-
-    res.json({
-      success: true,
-      data: pacientesFormateados
-    });
-
-  } catch (err) {
-    console.error('❌ Error crítico en SQL Dashboard:', err);
-    res.status(500).json({
-      success: false,
-      error: 'Error interno al procesar los datos del dashboard',
-      details: err.message
-    });
-  }
-});
-
 app.listen(PORT, () => {
   console.log(`Servidor VitalScan ejecutándose exitosamente en el puerto ${PORT}`);
 });
