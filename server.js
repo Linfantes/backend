@@ -312,11 +312,28 @@ app.get('/api/login', async (req, res) => {
 // NUEVA VERSIÓN: Guarda id_medico correctamente
 app.post('/api/paciente', async (req, res) => {
   try {
-    const { dni, nombre, apellido, fechaNacimiento, id_medico } = req.body;
+    const {
+      dni,
+      nombre,
+      apellido,
+      fechaNacimiento,
+      id_medico,
+      fechaCita,
+      horaCita
+    } = req.body;
 
     const sql = `
-      INSERT INTO paciente (dni, nombre, apellido, fecha_nacimiento, sexo, id_medico) 
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO paciente (
+        dni,
+        nombre,
+        apellido,
+        fecha_nacimiento,
+        sexo,
+        id_medico,
+        fecha_cita,
+        hora_cita
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await pool.query(sql, [
@@ -324,17 +341,23 @@ app.post('/api/paciente', async (req, res) => {
       nombre,
       apellido,
       fechaNacimiento,
-      'M', 
-      id_medico || null 
+      'M',
+      id_medico || null,
+      fechaCita,
+      horaCita
     ]);
 
     res.json({
       success: true,
-      message: 'Paciente registrado correctamente con médico asignado'
+      message: 'Paciente registrado correctamente'
     });
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: 'Error registrando paciente' });
+    res.status(500).json({
+      success: false,
+      error: 'Error registrando paciente'
+    });
   }
 });
 
@@ -351,8 +374,6 @@ app.get('/api/doctores', async (req, res) => {
     res.status(500).json({ success: false, error: 'Error obteniendo doctores' });
   }
 });
-
-// NUEVA VERSIÓN: Dashboard con filtros por médico, fecha y turno
 app.get('/api/pacientes/dashboard', async (req, res) => {
   try {
     const { id_medico, fecha, turno } = req.query;
@@ -363,6 +384,8 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
         p.dni,
         p.nombre,
         p.apellido,
+        p.fecha_cita,
+        p.hora_cita,
         sv.temperatura,
         sv.saturacion_oxigeno,
         sv.pulso,
@@ -371,7 +394,8 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
         p.created_at AS fecha_registro,
         sv.created_at AS fecha_triaje
       FROM paciente p
-      LEFT JOIN signos_vitales sv ON sv.id_paciente = p.id_paciente
+      LEFT JOIN signos_vitales sv
+        ON sv.id_paciente = p.id_paciente
         AND sv.id_signos = (
           SELECT MAX(id_signos)
           FROM signos_vitales
@@ -379,7 +403,7 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
         )
       WHERE 1=1
     `;
-    
+
     const params = [];
 
     if (id_medico) {
@@ -388,26 +412,33 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
     }
 
     if (fecha) {
-      sql += ` AND DATE(p.created_at) = ?`;
+      sql += ` AND DATE(p.fecha_cita) = ?`;
       params.push(fecha);
     }
 
     if (turno) {
       if (turno === 'Mañana') {
-        sql += ` AND HOUR(p.created_at) >= 6 AND HOUR(p.created_at) < 14`; 
+        sql += ` AND HOUR(p.hora_cita) >= 6 AND HOUR(p.hora_cita) < 14`;
       } else if (turno === 'Tarde') {
-        sql += ` AND HOUR(p.created_at) >= 14 AND HOUR(p.created_at) < 22`; 
+        sql += ` AND HOUR(p.hora_cita) >= 14 AND HOUR(p.hora_cita) < 22`;
       } else if (turno === 'Noche') {
-        sql += ` AND (HOUR(p.created_at) >= 22 OR HOUR(p.created_at) < 6)`; 
+        sql += ` AND (
+          HOUR(p.hora_cita) >= 22
+          OR HOUR(p.hora_cita) < 6
+        )`;
       }
     }
 
-    sql += ` ORDER BY p.id_paciente DESC`;
+    sql += ` ORDER BY p.fecha_cita DESC, p.hora_cita DESC`;
 
     const [resultados] = await pool.query(sql, params);
 
     const pacientesFormateados = resultados.map(pac => {
-      const pasoTriaje = pac.temperatura !== null && pac.temperatura !== undefined && pac.temperatura !== '';
+      const pasoTriaje =
+        pac.temperatura !== null &&
+        pac.temperatura !== undefined &&
+        pac.temperatura !== '';
+
       let estadoSalud = 'Pendiente';
 
       if (pasoTriaje) {
@@ -415,9 +446,19 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
         const pulso = parseInt(pac.pulso) || 0;
         const temp = parseFloat(pac.temperatura) || 0;
 
-        if ((oxigeno > 0 && oxigeno < 90) || pulso > 110 || temp > 38.5 || pac.triage === 'Rojo') {
+        if (
+          (oxigeno > 0 && oxigeno < 90) ||
+          pulso > 110 ||
+          temp > 38.5 ||
+          pac.triage === 'Rojo'
+        ) {
           estadoSalud = 'Crítico';
-        } else if ((oxigeno > 0 && oxigeno < 95) || pulso > 100 || temp > 37.5 || pac.triage === 'Amarillo') {
+        } else if (
+          (oxigeno > 0 && oxigeno < 95) ||
+          pulso > 100 ||
+          temp > 37.5 ||
+          pac.triage === 'Amarillo'
+        ) {
           estadoSalud = 'Requiere atención';
         } else {
           estadoSalud = 'Normal';
@@ -427,22 +468,33 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
       return {
         id_paciente: pac.id_paciente,
         dni: pac.dni,
-        nombreCompleto: `${pac.nombre || ''} ${pac.apellido || ''}`.trim() || `Paciente (${pac.dni})`,
+        nombreCompleto:
+          `${pac.nombre || ''} ${pac.apellido || ''}`.trim() ||
+          `Paciente (${pac.dni})`,
         estado: estadoSalud,
-        signosVitales: pasoTriaje ? {
-          temperatura: `${pac.temperatura}°C`,
-          saturacion_oxigeno: `${pac.saturacion_oxigeno}%`,
-          pulso: `${pac.pulso} bpm`,
-          nivelTriaje: pac.triage || 'N/A',
-          descripcion: pac.descripcion || '',
-          fecha: pac.fecha_triaje
-        } : null
+        fecha_cita: pac.fecha_cita,
+        hora_cita: pac.hora_cita,
+        signosVitales: pasoTriaje
+          ? {
+              temperatura: `${pac.temperatura}°C`,
+              saturacion_oxigeno: `${pac.saturacion_oxigeno}%`,
+              pulso: `${pac.pulso} bpm`,
+              nivelTriaje: pac.triage || 'N/A',
+              descripcion: pac.descripcion || '',
+              fecha: pac.fecha_triaje
+            }
+          : null
       };
     });
 
-    res.json({ success: true, data: pacientesFormateados });
+    res.json({
+      success: true,
+      data: pacientesFormateados
+    });
+
   } catch (err) {
-    console.error('❌ Error crítico en SQL Dashboard:', err);
+    console.error('Error Dashboard:', err);
+
     res.status(500).json({
       success: false,
       error: 'Error interno al procesar los datos del dashboard',
@@ -450,21 +502,8 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
     });
   }
 });
+// NUEVA VERSIÓN: Dashboard con filtros por médico, fecha y turno
 
-app.get('/api/paciente/dni/:dni', async (req, res) => {
-  try {
-    const { dni } = req.params;
-    const [pacientes] = await pool.query('SELECT * FROM paciente WHERE dni = ?', [dni]);
-
-    if (pacientes.length === 0) {
-      return res.status(404).json({ success: false, error: 'Paciente no encontrado' });
-    }
-    res.json({ success: true, data: pacientes[0] });
-  } catch (error) {
-    console.error('Error buscando paciente:', error);
-    res.status(500).json({ success: false, error: 'Error interno del servidor' });
-  }
-});
 
 // ==========================================
 // ADMINISTRACIÓN DE USUARIOS (CRUD)
