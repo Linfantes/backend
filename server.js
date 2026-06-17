@@ -170,24 +170,31 @@ app.post('/api/login', async (req, res) => {
   try {
     const { dni, password } = req.body;
 
+    // =================================================================
+    // LOGIN SIN CONTRASEÑA (EXCLUSIVO PARA PACIENTES)
+    // =================================================================
     if (!password) {
       const [pacientes] = await pool.query(`SELECT * FROM paciente WHERE dni = ?`, [dni]);
       if (pacientes.length > 0) {
         return res.json({ success: true, rol: 'Paciente', usuario: pacientes[0] });
       }
 
+      // Evitamos caídas controlando los flujos de otros roles si entran sin clave
       const [medicos] = await pool.query(`SELECT * FROM medico WHERE dni = ?`, [dni]);
-      if (medicos.length > 0) { return res.json({ success: true, rol: 'Doctor' }); }
+      if (medicos.length > 0) { return res.status(401).json({ success: false, error: 'Médicos requieren contraseña' }); }
 
       const [admision] = await pool.query(`SELECT * FROM personal_admision WHERE dni = ?`, [dni]);
-      if (admision.length > 0) { return res.json({ success: true, rol: 'Admision' }); }
+      if (admision.length > 0) { return res.status(401).json({ success: false, error: 'Personal requiere contraseña' }); }
 
       const [admin] = await pool.query(`SELECT * FROM administrador WHERE dni = ?`, [dni]);
-      if (admin.length > 0) { return res.json({ success: true, rol: 'Admin' }); }
+      if (admin.length > 0) { return res.status(401).json({ success: false, error: 'Administradores requieren contraseña' }); }
 
       return res.status(404).json({ success: false, error: 'DNI no registrado' });
     }
 
+    // =================================================================
+    // LOGIN CON CONTRASEÑA (MÉDICOS, ADMISIÓN Y ADMINISTRADORES)
+    // =================================================================
     let usuarioEncontrado = null;
     let rolAsignado = '';
     let tablaAsignada = '';
@@ -309,7 +316,6 @@ app.get('/api/login', async (req, res) => {
 // GESTIÓN DE PACIENTES & DOCTORES
 // ==========================================
 
-// NUEVA VERSIÓN: Guarda id_medico correctamente
 app.post('/api/paciente', async (req, res) => {
   try {
     const {
@@ -354,10 +360,10 @@ app.post('/api/paciente', async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({
+    res.status(500({
       success: false,
       error: 'Error registrando paciente'
-    });
+    }));
   }
 });
 
@@ -374,6 +380,7 @@ app.get('/api/doctores', async (req, res) => {
     res.status(500).json({ success: false, error: 'Error obteniendo doctores' });
   }
 });
+
 app.get('/api/pacientes/dashboard', async (req, res) => {
   try {
     const { id_medico, fecha, turno } = req.query;
@@ -469,7 +476,7 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
         id_paciente: pac.id_paciente,
         dni: pac.dni,
         nombreCompleto:
-          `${pac.nombre || ''} ${pac.apellido || ''}`.trim() ||
+          `|${pac.nombre || ''} ${pac.apellido || ''}`.trim() ||
           `Paciente (${pac.dni})`,
         estado: estadoSalud,
         fecha_cita: pac.fecha_cita,
@@ -494,7 +501,6 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
 
   } catch (err) {
     console.error('Error Dashboard:', err);
-
     res.status(500).json({
       success: false,
       error: 'Error interno al procesar los datos del dashboard',
@@ -502,8 +508,6 @@ app.get('/api/pacientes/dashboard', async (req, res) => {
     });
   }
 });
-// NUEVA VERSIÓN: Dashboard con filtros por médico, fecha y turno
-
 
 // ==========================================
 // ADMINISTRACIÓN DE USUARIOS (CRUD)
