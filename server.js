@@ -649,8 +649,6 @@ app.delete('/api/usuarios/:dni', async (req, res) => {
   }
 });
 
-// IMPORTANTE: esta ruta estaba antes definida DESPUÉS del catch-all,
-// por lo que nunca se ejecutaba. Ahora va antes, junto con las demás rutas.
 app.get('/api/paciente/dni/:dni', async (req, res) => {
   try {
     const { dni } = req.params;
@@ -682,7 +680,6 @@ app.get('/api/paciente/dni/:dni', async (req, res) => {
   }
 });
 
-// El catch-all SIEMPRE debe ir al final, después de TODAS las rutas reales.
 app.use((req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'Ruta API no encontrada' });
@@ -691,6 +688,159 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 4000;
+// 1. Modificar el registro de paciente para capturar el id_medico asignado
+app.post('/api/paciente', async (req, res) => {
+  try {
+    const {
+      dni,
+      nombre,
+      apellido,
+      fechaNacimiento,
+      id_medico // Asegúrate de enviar este campo desde el formulario de Admisión
+    } = req.body;
+
+    const sql = `
+      INSERT INTO paciente 
+      (
+        dni, 
+        nombre, 
+        apellido, 
+        fecha_nacimiento, 
+        sexo,
+        id_medico
+      ) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+
+    await pool.query(sql, [
+      dni,
+      nombre,
+      apellido,
+      fechaNacimiento,
+      'M', // Valor por defecto o dinámico según tu UI
+      id_medico || null // Permite registrar sin médico si es necesario, o forzarlo
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Paciente registrado correctamente con médico asignado'
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      error: 'Error registrando paciente'
+    });
+  }
+});
+
+// 2. Modificar el endpoint del Dashboard para aplicar filtros de médico, fecha y turno
+app.get('/api/pacientes/dashboard', async (req, res) => {
+  try {
+    // Recibimos los nuevos parámetros por la URL
+    const { id_medico, fecha, turno } = req.query;
+
+    let sql = `
+      SELECT
+        p.id_paciente,
+        p.dni,
+        p.nombre,
+        p.apellido,
+        sv.temperatura,
+        sv.saturacion_oxigeno,
+        sv.pulso,
+        sv.triage,
+        sv.descripcion,
+        p.created_at AS fecha_registro,
+        sv.created_at AS fecha_triaje
+      FROM paciente p
+      LEFT JOIN signos_vitales sv ON sv.id_paciente = p.id_paciente
+        AND sv.id_signos = (
+          SELECT MAX(id_signos)
+          FROM signos_vitales
+          WHERE id_paciente = p.id_paciente
+        )
+      WHERE 1=1
+    `;
+    
+    const params = [];
+
+    // Filtro estricto: Si viene id_medico, solo muestra sus pacientes asignados
+    if (id_medico) {
+      sql += ` AND p.id_medico = ?`;
+      params.push(id_medico);
+    }
+
+    // Filtro por fecha del calendario (YYYY-MM-DD)
+    if (fecha) {
+      sql += ` AND DATE(p.created_at) = ?`;
+      params.push(fecha);
+    }
+
+    // Filtro por Rangos de Horas para los Turnos (Configurables)
+    if (turno) {
+      if (turno === 'Mañana') {
+        sql += ` AND HOUR(p.created_at) >= 6 AND HOUR(p.created_at) < 14`; // 06:00 AM a 01:59 PM
+      } else if (turno === 'Tarde') {
+        sql += ` AND HOUR(p.created_at) >= 14 AND HOUR(p.created_at) < 22`; // 02:00 PM a 09:59 PM
+      } else if (turno === 'Noche') {
+        sql += ` AND (HOUR(p.created_at) >= 22 OR HOUR(p.created_at) < 6)`; // 10:00 PM a 05:59 AM
+      }
+    }
+
+    sql += ` ORDER BY p.id_paciente DESC`;
+
+    const [resultados] = await pool.query(sql, params);
+
+    const pacientesFormateados = resultados.map(pac => {
+      const pasoTriaje = pac.temperatura !== null && pac.temperatura !== undefined && pac.temperatura !== '';
+      let estadoSalud = 'Pendiente';
+
+      if (pasoTriaje) {
+        const oxigeno = parseFloat(pac.saturacion_oxigeno) || 0;
+        const pulso = parseInt(pac.pulso) || 0;
+        const temp = parseFloat(pac.temperatura) || 0;
+
+        if ((oxigeno > 0 && oxigeno < 90) || pulso > 110 || temp > 38.5 || pac.triage === 'Rojo') {
+          estadoSalud = 'Crítico';
+        } else if ((oxigeno > 0 && oxigeno < 95) || pulso > 100 || temp > 37.5 || pac.triage === 'Amarillo') {
+          estadoSalud = 'Requiere atención';
+        } else {
+          estadoSalud = 'Normal';
+        }
+      }
+
+      return {
+        id_paciente: pac.id_paciente,
+        dni: pac.dni,
+        nombreCompleto: `${pac.nombre || ''} ${pac.apellido || ''}`.trim() || `Paciente (${pac.dni})`,
+        estado: estadoSalud,
+        signosVitales: pasoTriaje ? {
+          temperatura: `${pac.temperatura}°C`,
+          saturacion_oxigeno: `${pac.saturacion_oxigeno}%`,
+          pulso: `${pac.pulso} bpm`,
+          nivelTriaje: pac.triage || 'N/A',
+          descripcion: pac.descripcion || '',
+          fecha: pac.fecha_triaje
+        } : null
+      };
+    });
+
+    res.json({
+      success: true,
+      data: pacientesFormateados
+    });
+
+  } catch (err) {
+    console.error('❌ Error crítico en SQL Dashboard:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno al procesar los datos del dashboard',
+      details: err.message
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Servidor VitalScan ejecutándose exitosamente en el puerto ${PORT}`);
